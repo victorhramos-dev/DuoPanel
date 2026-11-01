@@ -1,0 +1,140 @@
+name: Signed Android release
+
+on:
+  push:
+    tags: ['v*-streambox']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify signed APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - name: Require a version tag
+        run: |
+          if [[ "$GITHUB_REF_TYPE" != tag ]] || [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-streambox$ ]]; then
+            echo '::error::Run this workflow on a tag such as v1.0.3-streambox.'
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: true
+      - name: Restore signing key from encrypted secret
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          value = os.environ.get('KEYSTORE_BASE64', '')
+          if not value:
+              raise SystemExit('Missing ANDROID_KEYSTORE_BASE64 secret')
+          path = Path(os.environ['RUNNER_TEMP']) / 'duopanel-release.jks'
+          path.touch(mode=0o600, exist_ok=False)
+          path.write_bytes(base64.b64decode(value, validate=True))
+          PY
+      - name: Test and build on GitHub
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/duopanel-release.jks
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          : "${ANDROID_STORE_PASSWORD:?Missing ANDROID_STORE_PASSWORD secret}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+          ./gradlew test assembleRelease --no-daemon --stacktrace --console=plain
+      - name: Verify signature, version and release files
+        id: verify
+        env:
+          SIGNING_CERT_SHA256: 405726847c0799bf7a3761f343f2b5f4f203304218e80f08ed8af8b7d053b55e
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APK=app/build/outputs/apk/release/app-release.apk
+          TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+          SIGNATURE="$("$TOOLS/apksigner" verify --verbose --print-certs "$APK")"
+          grep -Fqx "Signer #1 certificate SHA-256 digest: $SIGNING_CERT_SHA256" <<< "$SIGNATURE"
+          grep -Fqx 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$SIGNATURE"
+          grep -Fqx 'Number of signers: 1' <<< "$SIGNATURE"
+          BADGING="$("$TOOLS/aapt" dump badging "$APK")"
+          if [[ "$BADGING" != *"versionName='$VERSION'"* ]] || [[ "$BADGING" == *application-debuggable* ]]; then
+            echo '::error::APK version differs from the tag, or APK is debuggable.'
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" "dist/DuoPanel-Streambox-Fix-${VERSION%-streambox}.apk"
+          (cd dist && sha256sum ./*.apk > SHA256SUMS)
+          NOTES=".github/release-notes/$VERSION.md"
+          if [[ -f "$NOTES" ]]; then
+            cp "$NOTES" dist/RELEASE_NOTES.md
+          else
+            printf 'DuoPanel Streambox Fix %s\n' "$VERSION" > dist/RELEASE_NOTES.md
+          fi
+          printf '\nCompilada e assinada no GitHub Actions: %s/%s/actions/runs/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> dist/RELEASE_NOTES.md
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Upload signed release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-test-reports
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/duopanel-release.jks"
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-release
+          path: dist
+      - name: Publish the APK built by the previous job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.apk dist/SHA256SUMS \
+            --repo "$GH_REPO" --verify-tag \
+            --title "DuoPanel Streambox Fix ${VERSION%-streambox}" \
+            --notes-file dist/RELEASE_NOTES.md --latest

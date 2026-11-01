@@ -1,0 +1,59 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests and lint report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      - name: Test debug and release variants
+        run: ./gradlew test --no-daemon --stacktrace --console=plain
+      - name: Report existing lint issues
+        id: lint
+        continue-on-error: true
+        run: ./gradlew lintRelease --no-daemon --stacktrace --console=plain
+      - name: Explain non-blocking lint status
+        if: always()
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: |
+          if [[ "$LINT_OUTCOME" == failure ]]; then
+            echo '::warning::Lint contains pre-existing issues. See the uploaded report; tests remain mandatory.'
+            echo 'Lint is non-blocking while pre-existing errors are tracked in README.md. No lint rules were suppressed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-verification-reports
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-release.*
+          if-no-files-found: warn
+          retention-days: 14

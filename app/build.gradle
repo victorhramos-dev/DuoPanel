@@ -11,9 +11,18 @@ android {
     def ksFile = rootProject.file('keystore.properties')
     def ks = new Properties()
     if (ksFile.exists()) ks.load(new FileInputStream(ksFile))
+    [storeFile: 'ANDROID_KEYSTORE_PATH', storePassword: 'ANDROID_STORE_PASSWORD',
+     keyAlias: 'ANDROID_KEY_ALIAS', keyPassword: 'ANDROID_KEY_PASSWORD'].each { key, variable ->
+        def value = System.getenv(variable)
+        if (value != null) ks.setProperty(key, value)
+    }
+    def signingReady = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].every { ks.getProperty(it) }
+    if (!ks.isEmpty() && !signingReady) {
+        throw new GradleException('Release signing requires storeFile, storePassword, keyAlias and keyPassword.')
+    }
     signingConfigs {
         release {
-            if (ksFile.exists()) {
+            if (signingReady) {
                 storeFile rootProject.file(ks['storeFile'])
                 storePassword ks['storePassword']
                 keyAlias ks['keyAlias']
@@ -24,7 +33,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            if (ksFile.exists()) signingConfig signingConfigs.release
+            if (signingReady) signingConfig signingConfigs.release
         }
     }
     namespace 'com.abdullaherturk.duopanel'

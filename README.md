@@ -1,44 +1,57 @@
-# DuoPanel Streambox Fix — 1.0.1-streambox
+# DuoPanel Streambox Fix — 1.0.3-streambox
 
-Compilação local não oficial baseada no [DuoPanel original](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-), commit `1b8b897e9114046d5ea19f5ead4f47d02693ced3`.
-Destinada ao problema de split inicial incompleto relatado no Faaftech Streambox Pro 8 GB conectado à multimídia do Omoda 5 HEV 2026.
+Fork não oficial do [DuoPanel original](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-), baseado no commit `1b8b897e9114046d5ea19f5ead4f47d02693ced3`, para o Faaftech Streambox Pro conectado à multimídia do Omoda 5 HEV 2026.
 
-## Correção
+[Baixar a última versão](https://github.com/victorhramos-dev/DuoPanel/releases/latest) · [GitHub Actions](https://github.com/victorhramos-dev/DuoPanel/actions)
 
-- Mede a proporção sobre a área útil da tela e exige cobertura completa das duas aplicações, não apenas uma porcentagem aparentemente correta.
-- Espera as dimensões estabilizarem e considera as múltiplas janelas de uma mesma aplicação sem confundi-las com apps diferentes ou janelas flutuantes.
-- Prefere a ação nativa do divisor; na ausência dela, usa um gesto de acessibilidade que ultrapassa o limiar de arraste e termina na proporção solicitada. A verificação começa após a conclusão do gesto.
-- Não salva posições intermediárias, canceladas ou ajustadas automaticamente pelo Android como se fossem uma escolha manual. Uma mudança manual posterior continua sendo lembrada.
+## Melhorias
 
-Os pontos de encaixe e os limites mínimos dos apps continuam sendo controlados pelo Android. A configuração solicitada é preservada mesmo quando o sistema arredonda a posição final.
+- Exige cobertura completa da área útil e estabilidade das janelas, incluindo barras do sistema, atividades embutidas e fragmentos de uma mesma aplicação.
+- Restaura diretamente a proporção salva, sem parada forçada em 50/50. A espera fixa foi removida quando não há reenvio do Maps em modo direção.
+- Prefere a ação nativa do divisor e só verifica um gesto após sua conclusão. Estados intermediários e encaixes automáticos não substituem a preferência salva.
+- Limita capas pelo maior eixo, compartilha pedidos simultâneos e não acumula downloads codificados em RAM. O cache tem limite de 4 MiB e responde à pressão de memória.
+- Libera callbacks e referências das telas inativas; reduz atualizações repetidas da barra e pausa GPS/bússola quando ela fica oculta.
 
-## Instalação desta compilação
+Os pontos de encaixe e os tamanhos mínimos continuam sendo controlados pelo Android.
 
-1. Instale o APK **DuoPanel Streambox Fix** fornecido com este código. O pacote é `com.abdullaherturk.duopanel.streamboxfix`, diferente do original: não o substitui nem importa suas preferências.
+## Instalação
+
+1. Baixe o APK **DuoPanel Streambox Fix** em [Releases](https://github.com/victorhramos-dev/DuoPanel/releases/latest). O pacote `com.abdullaherturk.duopanel.streamboxfix` permanece separado do original, sem importar suas preferências.
 2. Desative a acessibilidade e a abertura automática do DuoPanel original para evitar dois serviços controlando o divisor.
-3. Abra **DuoPanel Streambox Fix**, permita a sobreposição e ative **DuoPanel Streambox Fix — split screen** em Acessibilidade. Se o Android bloquear essa permissão, use **Informações do app → menu → Permitir configurações restritas**.
-4. Selecione os dois apps novamente, configure a proporção e abra o par com o veículo estacionado.
+3. Permita a sobreposição e habilite **DuoPanel Streambox Fix — split screen** em Acessibilidade. Se o Android bloquear essa permissão, use **Informações do app → menu → Permitir configurações restritas**.
+4. Selecione os aplicativos, configure a proporção e teste com o veículo estacionado.
 
-A assinatura é local, não a chave do autor. Esta compilação não foi testada fisicamente no Streambox/Omoda; o smoke disponível usa Android 13 emulado, com tela de 1920×720.
+A assinatura pertence ao fork, não ao autor original. A mesma chave é preservada para permitir atualizações das compilações anteriores do Streambox Fix.
 
-## Recompilação
+## Compilação e release no GitHub
 
-Use JDK 17, Android SDK Platform 34 e Build Tools 34.0.0, com `JAVA_HOME` e `ANDROID_HOME` definidos.
-Para um release assinado, crie `keystore.properties` na raiz com `storeFile`, `storePassword`, `keyAlias` e `keyPassword` referentes à sua chave local. Esse arquivo e a chave não pertencem ao controle de versão.
+- `android-ci.yml` executa os testes debug/release em pushes na `main` e pull requests, sem precisar de segredos. Publica os relatórios de teste e lint como artefatos.
+- `release.yml` é acionado por tags `vX.Y.Z-streambox`. Compila, testa, assina e verifica o APK no GitHub Actions antes de outro job publicar o APK e `SHA256SUMS` na GitHub Release. Nenhum APK local é enviado pelo workflow.
+- A versão do manifesto precisa coincidir com a tag. A assinatura APK v2 e a impressão digital do certificado também são verificadas; APKs depuráveis são rejeitados.
+- Os workflows usam JDK 17, Android SDK 34, Build Tools 34.0.0 e Gradle 8.7, com actions fixadas por SHA e checksum da distribuição Gradle.
 
-```sh
-./gradlew testDebugUnitTest assembleRelease
-```
+Para a próxima versão, atualize `versionCode` e `versionName` em `app/build.gradle`, envie o commit à `main` e publique uma tag correspondente. Um rerun manual pode usar `gh workflow run release.yml --ref vX.Y.Z-streambox` em uma tag existente, antes de haver release publicada para ela.
 
-O APK de release fica em `app/build/outputs/apk/release/`. Os testes cobrem cobertura parcial, orientação, barras do sistema, fragmentos de janelas, cancelamento, callbacks antigos e preservação da proporção.
+### Assinatura da CI
 
-## Verificação desta compilação
+Configure estes **GitHub Actions secrets** no repositório; nunca adicione a chave ou senhas ao Git:
 
-- `./gradlew testDebugUnitTest assembleRelease`: 34 casos passaram e o release assinado foi gerado. Há cobertura das APIs 28, 30 e 33.
-- APK não depurável instalado junto do DuoPanel original no emulador Android 13, 1920×720. Clock e Settings preencheram a área útil nas opções 30%, 50% e 70%, preservando os valores configurados apesar dos pontos de encaixe do Android.
-- O caminho de gesto também foi exercitado no APK real: uma proporção manual de 34% foi lembrada e depois restaurada de 66% para 34%, com verificação após a conclusão do gesto.
-- A assinatura APK v2 foi verificada com `apksigner`. A revisão escopada não deixou achados materiais pendentes.
-- `lintRelease` **não está limpo**: permanece com 10 erros em código/permissões preexistentes e 69 avisos. Nenhum desses erros foi suprimido para gerar o APK; a incompatibilidade nova de API encontrada durante a alteração foi corrigida.
+- `ANDROID_KEYSTORE_BASE64`: keystore codificado em Base64.
+- `ANDROID_STORE_PASSWORD`: senha do keystore.
+- `ANDROID_KEY_ALIAS`: alias da chave.
+- `ANDROID_KEY_PASSWORD`: senha da chave.
+
+O workflow restaura a chave apenas no diretório temporário do runner e a remove ao terminar. As credenciais são fornecidas ao Gradle por variáveis de ambiente, não por arquivos versionados. O job de compilação tem somente leitura do repositório; somente o job de publicação recebe permissão para criar a release, sem acesso ao material de assinatura do outro runner.
+
+Para desenvolvimento, `keystore.properties` local continua suportado conforme `keystore.properties.example`; `ANDROID_KEYSTORE_PATH` e as variáveis de assinatura acima têm precedência. Os testes podem ser executados com `./gradlew test`, sem chave de release.
+
+## Verificação da versão 1.0.3
+
+- 78 casos em debug e 78 em release, incluindo cobertura de APIs 28, 30 e 33: geometria, abertura do par, callbacks antigos, decodificação, cancelamento, reciclagem de linhas e ciclo de vida.
+- No emulador Android 13/API 33, um PNG 8192×512 limitado ao maior eixo de 512 pixels passou de 16 MiB para 64 KiB de bitmap decodificado. Isso não é uma medição da RAM total do aplicativo no Streambox.
+- APK assinado e painel musical em split com Settings verificados no emulador 1920×720. Capas HARDWARE também foram verificadas no APK real.
+- A redução total de RAM e as novas otimizações não foram medidas fisicamente no Streambox/Omoda.
+- `lintRelease` ainda apresenta erros preexistentes (10 erros e 69 avisos na verificação local). A CI mantém esse passo explicitamente não bloqueante e publica o relatório, sem novas supressões; falhas de testes ou de compilação impedem a release.
 
 ---
 
@@ -63,7 +76,7 @@ O APK de release fica em `app/build/outputs/apk/release/`. Os testes cobrem cobe
   <img alt="Android" src="https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Split screen" src="https://img.shields.io/badge/Split%20screen-Android%2012L%2B-1f6f8b">
   <img alt="Languages" src="https://img.shields.io/badge/Dil%20%2F%20Language-TR%20%7C%20EN-blue">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.1--streambox-informational">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.3--streambox-informational">
 </p>
 
 ---
