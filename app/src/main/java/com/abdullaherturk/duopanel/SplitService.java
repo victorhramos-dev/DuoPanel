@@ -342,7 +342,7 @@ public class SplitService extends AccessibilityService {
                     updateActive();
                     if (!pairKeep) resendMapsDrive(left, right);
                     else resendIfMapsNormal(left, right);
-                    scheduleRatio(left, right, 5000);   // surus istegi gittikten ve pencereler oturduktan sonra
+                    scheduleRatio(left, right, initialRatioDelay(left, right));
                     return;
                 }
                 if (lr != null && lr[0].equals(right) && lr[1].equals(left)) {
@@ -360,7 +360,7 @@ public class SplitService extends AccessibilityService {
                     updateActive();
                     if (!pairKeep) resendMapsDrive(nl, nr);
                     else resendIfMapsNormal(nl, nr);
-                    scheduleRatio(nl, nr, 5000);
+                    scheduleRatio(nl, nr, initialRatioDelay(nl, nr));
                     return;
                 }
                 if (attempt < 3) {
@@ -673,7 +673,7 @@ public class SplitService extends AccessibilityService {
         final int token = ++ratioToken;
         ratioArmed = false;
         blockedAt = -1;
-        delay = Math.max(delay, busyUntil - SystemClock.elapsedRealtime() + 1);
+        delay = Math.max(0L, Math.max(delay, busyUntil - SystemClock.elapsedRealtime() + 1));
         ratioOpAt = SystemClock.uptimeMillis() + delay;
         seenRatio = -1;
         pendingRatio = new Runnable() {
@@ -683,6 +683,13 @@ public class SplitService extends AccessibilityService {
             }
         };
         h.postDelayed(pendingRatio, delay);
+    }
+
+    private long initialRatioDelay(String left, String right) {
+        // Only drive-mode re-sends can still disturb the pair (also on keep).
+        // Watcher quiet time is not pending Maps work; geometry settles below.
+        return Prefs.mapsDrive(this)
+                && (AppList.MAPS.equals(left) || AppList.MAPS.equals(right)) ? 5000 : 0;
     }
 
     private int ratioToken;
@@ -804,7 +811,7 @@ public class SplitService extends AccessibilityService {
 
         void drag(final SplitGeometry geometry, final int remaining) {
             if (!current()) return;
-            boolean accepted = dragRatio(step(geometry.percent(), target), geometry, new GestureResultCallback() {
+            boolean accepted = dragRatio(target, geometry, new GestureResultCallback() {
                 @Override public void onCompleted(GestureDescription gesture) {
                     if (current()) verify(geometry, null, 0, remaining);
                 }
@@ -1025,13 +1032,6 @@ public class SplitService extends AccessibilityService {
             }
         } catch (Exception e) { }
         return null;
-    }
-
-    /** Uzun mesafeyi adimlara bol (en fazla 22 puan): %70 -> %30 once %50'ye, sonra %30'a */
-    private static int step(int cur, int target) {
-        int d = target - cur;
-        if (Math.abs(d) <= 32) return target;
-        return cur + (d > 0 ? 20 : -20);
     }
 
     /** Always relative to the usable display, never to the sum of two truncated panes. */

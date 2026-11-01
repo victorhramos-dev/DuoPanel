@@ -63,7 +63,7 @@ public class SplitServiceTest {
     @Test public void initialLaunchDoesNotMistakeIncompleteRightPaneForFloatingWindow() {
         pair(150, 500, true);
         service.afterPair(LEFT, RIGHT);
-        idle(8000);
+        idle(2500);
         assertEquals(1, accessibility.getGesturesDispatched().size());
     }
 
@@ -102,13 +102,31 @@ public class SplitServiceTest {
                 1, accessibility.getGesturesDispatched().size());
     }
 
+    @Test public void acceptedNativeActionWithoutMovementFallsBackToDirectGesture() {
+        AccessibilityNodeInfo divider = node("com.android.systemui");
+        int action = 0x01020001;
+        divider.addAction(new AccessibilityNodeInfo.AccessibilityAction(action, "Move left 30%"));
+        Shadows.shadowOf(divider).setOnPerformActionListener((id, args) -> id == action);
+        accessibility.setWindows(Arrays.asList(
+                window(1, LEFT, new Rect(0, 0, 696, 400)),
+                window(1, RIGHT, new Rect(704, 0, 1000, 400)),
+                window(5, divider, new Rect(692, 0, 708, 400))));
+        service.applyRatio(LEFT, RIGHT);
+        assertTrue(accessibility.getGesturesDispatched().isEmpty());
+        idle(1500);
+        assertEquals("an accepted native action must not strand a ready pair at the wrong ratio",
+                1, accessibility.getGesturesDispatched().size());
+        assertEquals(300, gestureEnd(0)[0], 1);
+        assertEquals(30, Prefs.ratio(service, LEFT, RIGHT));
+    }
+
     @Test public void geometryMustSettleEvenWhenLocalPercentageIsUnchanged() {
         Prefs.setRatio(service, LEFT, RIGHT, 50);
         pair(150, 500, false);
         service.afterPair(LEFT, RIGHT);
-        idle(6200);
+        idle(1100);
         pair(225, 750, false);
-        idle(400);
+        idle(600);
         assertTrue("window edges are still changing", accessibility.getGesturesDispatched().isEmpty());
         idle(700);
         assertEquals(1, accessibility.getGesturesDispatched().size());
@@ -316,6 +334,167 @@ public class SplitServiceTest {
         idle(6000);
         service.onAccessibilityEvent(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOWS_CHANGED));
         assertEquals(30, Prefs.ratio(service, LEFT, RIGHT));
+    }
+
+    @Test @Config(sdk = {28, 30, 33})
+    public void seventyToThirtyDispatchesTheFinalTargetWithoutHalfwayStage() {
+        assertDirectResize(70, 30);
+    }
+
+    @Test @Config(sdk = {28, 30, 33})
+    public void thirtyToSeventyDispatchesTheFinalTargetWithoutHalfwayStage() {
+        assertDirectResize(30, 70);
+    }
+
+    private void assertDirectResize(int initial, int target) {
+        Prefs.setRatio(service, LEFT, RIGHT, target);
+        pair(initial * 10 - 4, 1000, true);
+        service.applyRatio(LEFT, RIGHT);
+        assertEquals(1, accessibility.getGesturesDispatched().size());
+        assertEquals("the first gesture must target the requested ratio, not 50%",
+                target * 10, gestureEnd(0)[0], 1);
+        ShadowAccessibilityService.GestureDispatch gesture = accessibility.getGesturesDispatched().get(0);
+        idle(6000);
+        assertEquals("acceptance alone cannot start another adjustment", 1,
+                accessibility.getGesturesDispatched().size());
+        pair(target * 10 - 4, 1000, true);
+        gesture.callback().onCompleted(gesture.description());
+        idle(8000);
+        service.onAccessibilityEvent(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOWS_CHANGED));
+        assertEquals("a completed, covering resize needs no halfway gesture", 1,
+                accessibility.getGesturesDispatched().size());
+        assertEquals(target, Prefs.ratio(service, LEFT, RIGHT));
+        assertEquals(LEFT, Prefs.side(service, Prefs.LEFT));
+        assertEquals(RIGHT, Prefs.side(service, Prefs.RIGHT));
+    }
+
+    @Test public void readyPairAtSeventyStartsRestoringThirtyWithoutFiveSecondSleep() {
+        assertReadyPairStartsPromptly(70, 30);
+    }
+
+    @Test public void readyPairAtThirtyStartsRestoringSeventyWithoutFiveSecondSleep() {
+        assertReadyPairStartsPromptly(30, 70);
+    }
+
+    private void assertReadyPairStartsPromptly(int initial, int target) {
+        Prefs.setRatio(service, LEFT, RIGHT, target);
+        pair(initial * 10 - 4, 1000, true);
+        service.afterPair(LEFT, RIGHT);
+        // Allows the existing 900ms pair check and two 700ms geometry samples;
+        // this is a deterministic scheduler budget, not a physical timing claim.
+        idle(2500);
+        assertEquals("a ready non-Maps pair must not wait a fixed five seconds", 1,
+                accessibility.getGesturesDispatched().size());
+        assertEquals(target * 10, gestureEnd(0)[0], 1);
+        assertEquals(target, Prefs.ratio(service, LEFT, RIGHT));
+        assertEquals(LEFT, Prefs.side(service, Prefs.LEFT));
+        assertEquals(RIGHT, Prefs.side(service, Prefs.RIGHT));
+    }
+
+    @Test public void slowAppIsNotResizedOrRelaunchedBeforeBothMembersAreIdentified() {
+        accessibility.setWindows(Arrays.asList(
+                window(1, LEFT, new Rect(0, 0, 696, 400)),
+                window(1, "example.loading", new Rect(704, 0, 1000, 400)),
+                window(5, "com.android.systemui", new Rect(692, 0, 708, 400))));
+        service.afterPair(LEFT, RIGHT);
+        idle(2100);
+        assertTrue(accessibility.getGesturesDispatched().isEmpty());
+        assertNull("an unidentified loading pane must not trigger a relaunch",
+                accessibility.getNextStartedActivity());
+        assertEquals(LEFT, Prefs.side(service, Prefs.LEFT));
+        assertEquals(RIGHT, Prefs.side(service, Prefs.RIGHT));
+        assertEquals(30, Prefs.ratio(service, LEFT, RIGHT));
+        pair(696, 1000, true);
+        idle(8000);
+        assertEquals("normalization resumes once both apps are identified", 1,
+                accessibility.getGesturesDispatched().size());
+        assertEquals(30, Prefs.ratio(service, LEFT, RIGHT));
+        assertNull(accessibility.getNextStartedActivity());
+    }
+
+    @Test public void realStartupRestoresThirtyPromptlyWithoutKeep() {
+        assertRealStartupRestoresThirtyPromptly(false);
+    }
+
+    @Test public void realStartupRestoresThirtyPromptlyWithKeep() {
+        assertRealStartupRestoresThirtyPromptly(true);
+    }
+
+    private void assertRealStartupRestoresThirtyPromptly(boolean keep) {
+        service.runPair(LEFT, RIGHT, keep);
+        idle(700);
+        assertNotNull("runPair must emit the launch bridge before the callback",
+                accessibility.getNextStartedActivity());
+        assertTrue("launch alone must not resize", accessibility.getGesturesDispatched().isEmpty());
+        // Apps are on the correct sides; only their initial widths are inverted.
+        pair(696, 1000, true);
+        // Represents PairActivity's public completion callback, without launching it.
+        service.afterPair(LEFT, RIGHT);
+        idle(2500);
+        assertEquals("a ready non-Maps startup must resize within 2500ms of its callback (keep="
+                        + keep + ")", 1, accessibility.getGesturesDispatched().size());
+        assertEquals("the first gesture must target 30% directly, never 50%",
+                300, gestureEnd(0)[0], 1);
+        assertEquals(30, Prefs.ratio(service, LEFT, RIGHT));
+        assertEquals(LEFT, Prefs.side(service, Prefs.LEFT));
+        assertEquals(RIGHT, Prefs.side(service, Prefs.RIGHT));
+    }
+
+    @Test public void mapsDrivePreferenceDoesNotDelayNonMapsStartup() {
+        Prefs.set(service, "mapsDrive", true);
+        assertRealStartupRestoresThirtyPromptly(false);
+    }
+
+    @Test public void mapsDrivePreferenceDoesNotDelayNonMapsReturn() {
+        Prefs.set(service, "mapsDrive", true);
+        assertRealStartupRestoresThirtyPromptly(true);
+    }
+
+    @Test public void mapsDriveStartupWaitsForResendBeforeResizing() {
+        assertMapsResendPrecedesResize(false);
+    }
+
+    @Test public void mapsDriveReturnWaitsForResendBeforeResizing() {
+        assertMapsResendPrecedesResize(true);
+    }
+
+    private void assertMapsResendPrecedesResize(boolean keep) {
+        Prefs.set(service, "mapsDrive", true);
+        Prefs.setSide(service, Prefs.LEFT, AppList.MAPS);
+        Prefs.setRatio(service, AppList.MAPS, RIGHT, 30);
+        // Two recognized tabs force the real keep=true normal-map resend path.
+        Prefs.sp(service).edit().putString("mapsTabIds", "test:tab").commit();
+        AccessibilityNodeInfo maps = node(AppList.MAPS);
+        maps.setViewIdResourceName("test:tab");
+        AccessibilityNodeInfo tab = node(AppList.MAPS);
+        tab.setViewIdResourceName("test:tab");
+        Shadows.shadowOf(maps).addChild(tab);
+        service.runPair(AppList.MAPS, RIGHT, keep);
+        idle(700);
+        assertNotNull(accessibility.getNextStartedActivity());
+        accessibility.setWindows(Arrays.asList(
+                window(1, maps, new Rect(0, 0, 696, 400)),
+                window(1, RIGHT, new Rect(704, 0, 1000, 400)),
+                window(5, "com.android.systemui", new Rect(692, 0, 708, 400))));
+        service.afterPair(AppList.MAPS, RIGHT);
+        idle(900);
+        long resendDelay = keep ? 1800 : 1200;
+        idle(resendDelay - 1);
+        assertNull("drive intent must still be pending", accessibility.getNextStartedActivity());
+        assertTrue("no resize while the drive resend is pending",
+                accessibility.getGesturesDispatched().isEmpty());
+        idle(1);
+        android.content.Intent resend = accessibility.getNextStartedActivity();
+        assertNotNull("exercise the actual drive resend, including keep=true", resend);
+        assertEquals(AppList.MAPS, resend.getPackage());
+        assertEquals("google.navigation:/?free=1&mode=d", resend.getDataString());
+        assertTrue(accessibility.getGesturesDispatched().isEmpty());
+        idle(7000);
+        assertEquals(1, accessibility.getGesturesDispatched().size());
+        assertEquals(300, gestureEnd(0)[0], 1);
+        assertEquals(30, Prefs.ratio(service, AppList.MAPS, RIGHT));
+        assertEquals(AppList.MAPS, Prefs.side(service, Prefs.LEFT));
+        assertEquals(RIGHT, Prefs.side(service, Prefs.RIGHT));
     }
 
     private void pair(int leftEdge, int rightEdge, boolean divider) {

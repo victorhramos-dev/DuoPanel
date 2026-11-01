@@ -10,134 +10,282 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.LruCache;
 import android.widget.ImageView;
+import android.content.ComponentCallbacks2;
+import android.content.res.Configuration;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /** Kapak yukleme, bulaniklastirma ve kapaktan vurgu rengi */
 public class MusicArt {
-    private static final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(8 * 1024 * 1024) {
-        protected int sizeOf(String k, Bitmap b) { return b.getByteCount(); }
+    private static final int MAX_ENCODED_BYTES = 12 * 1024 * 1024;
+    private static final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(4 * 1024 * 1024) {
+        protected int sizeOf(String k, Bitmap b) { return b.getAllocationByteCount(); }
     };
-    private static final ExecutorService pool = Executors.newFixedThreadPool(2);
+    private static final ThreadPoolExecutor pool = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<Runnable>(32));
     private static final Handler main = new Handler(Looper.getMainLooper());
+    private static final Map<String, Pending> pending = new HashMap<>();
+    private static WeakReference<Context> registeredContext = new WeakReference<>(null);
+    private static int cacheGeneration;
+    private static final ComponentCallbacks2 memory = new ComponentCallbacks2() {
+        public void onConfigurationChanged(Configuration c) { }
+        public void onLowMemory() { onTrimMemory(TRIM_MEMORY_COMPLETE); }
+        public void onTrimMemory(int level) {
+            synchronized (pending) {
+                cacheGeneration++;
+                if (level >= TRIM_MEMORY_UI_HIDDEN || level == TRIM_MEMORY_RUNNING_CRITICAL) cache.evictAll();
+                else if (level >= TRIM_MEMORY_RUNNING_LOW) cache.trimToSize(cache.size() / 2);
+            }
+        }
+    };
 
     public interface Done { void done(Bitmap b); }
+
+    /** Cancelling releases the screen callback even if an I/O operation is already running. */
+    public static final class Request {
+        private Done callback;
+        private Pending owner;
+
+        private Request(Done callback) { this.callback = callback; }
+
+        public void cancel() {
+            synchronized (pending) {
+                callback = null;
+                if (owner != null) {
+                    owner.requests.remove(this);
+                    if (owner.requests.isEmpty() && pool.remove(owner)) pending.remove(owner.key);
+                    owner = null;
+                }
+            }
+        }
+
+        private void deliver(final Bitmap bitmap) {
+            Runnable delivery = new Runnable() {
+                public void run() {
+                    Done done;
+                    synchronized (pending) { done = callback; callback = null; owner = null; }
+                    if (done != null) done.done(bitmap);
+                }
+            };
+            if (Looper.myLooper() == Looper.getMainLooper()) delivery.run(); else main.post(delivery);
+        }
+    }
+
+    private static final class Pending implements Runnable {
+        final Context context;
+        final Uri uri;
+        final String key;
+        final int maxPx, generation;
+        final List<Request> requests = new ArrayList<>();
+
+        Pending(Context context, Uri uri, String key, int maxPx) {
+            this.context = context;
+            this.uri = uri;
+            this.key = key;
+            this.maxPx = maxPx;
+            generation = cacheGeneration;
+        }
+
+        public void run() {
+            synchronized (pending) {
+                if (requests.isEmpty()) { pending.remove(key); return; }
+            }
+            Bitmap bitmap = null;
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                bitmap = decode(context, uri, maxPx);
+            } catch (Throwable e) { }
+            finish(bitmap);
+        }
+
+        void finish(Bitmap bitmap) {
+            List<Request> deliveries;
+            synchronized (pending) {
+                pending.remove(key);
+                if (bitmap != null && !requests.isEmpty() && generation == cacheGeneration) cache.put(key, bitmap);
+                deliveries = new ArrayList<>(requests);
+                for (Request request : deliveries) request.owner = null;
+                requests.clear();
+            }
+            for (Request request : deliveries) request.deliver(bitmap);
+        }
+    }
 
     /** Sarkinin kapagi: once oturumdaki resim, yoksa adresinden yuklenir */
     public static Bitmap metadataBitmap(MediaMetadata m) {
         if (m == null) return null;
-        for (String k : new String[]{MediaMetadata.METADATA_KEY_ALBUM_ART, MediaMetadata.METADATA_KEY_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON}) {
+        for (String k : BITMAP_KEYS) {
             try { Bitmap b = m.getBitmap(k); if (b != null) return b; } catch (Exception e) { }
         }
         return null;
     }
 
+    private static final String[] BITMAP_KEYS = {MediaMetadata.METADATA_KEY_ALBUM_ART,
+            MediaMetadata.METADATA_KEY_ART, MediaMetadata.METADATA_KEY_DISPLAY_ICON};
+    private static final String[] URI_KEYS = {MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
+            MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI};
+
     public static Uri metadataUri(MediaMetadata m) {
         if (m == null) return null;
-        for (String k : new String[]{MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI}) {
+        for (String k : URI_KEYS) {
             String s = m.getString(k);
             if (s != null && s.length() > 0) return Uri.parse(s);
         }
         return null;
     }
 
-    /** Adresten resim yukler (content, android.resource, file, http/https); sonuc ana is parcaciginda */
-    public static void load(final Context c, final Uri u, final int maxPx, final Done d) {
-        if (u == null) { d.done(null); return; }
-        final String key = u.toString() + "#" + maxPx;
-        Bitmap hit = cache.get(key);
-        if (hit != null) { d.done(hit); return; }
-        pool.execute(new Runnable() {
-            public void run() {
-                Bitmap b = null;
-                InputStream in = null;
-                try {
-                    String sc = u.getScheme();
-                    if ("http".equals(sc) || "https".equals(sc)) {
-                        HttpURLConnection con = (HttpURLConnection) new URL(u.toString()).openConnection();
-                        con.setConnectTimeout(6000);
-                        con.setReadTimeout(8000);
-                        in = con.getInputStream();
-                    } else {
-                        in = c.getContentResolver().openInputStream(u);
-                    }
-                    byte[] data = readAll(in);
-                    BitmapFactory.Options o = new BitmapFactory.Options();
-                    o.inJustDecodeBounds = true;
-                    BitmapFactory.decodeByteArray(data, 0, data.length, o);
-                    int s = 1;
-                    while (o.outWidth / (s * 2) >= maxPx && o.outHeight / (s * 2) >= maxPx) s *= 2;
-                    o = new BitmapFactory.Options();
-                    o.inSampleSize = s;
-                    b = BitmapFactory.decodeByteArray(data, 0, data.length, o);
-                } catch (Throwable e) {
-                    b = null;
-                } finally {
-                    try { if (in != null) in.close(); } catch (Exception e) { }
-                }
-                final Bitmap res = b;
-                if (res != null) cache.put(key, res);
-                main.post(new Runnable() { public void run() { d.done(res); } });
+    /** Shared, bounded background loads; results are delivered on the main thread. */
+    public static Request load(Context c, Uri u, int maxPx, Done done) {
+        Request request = new Request(done);
+        if (u == null) { request.deliver(null); return request; }
+        Context app = c.getApplicationContext();
+        int size = Math.max(1, maxPx);
+        String key = u.toString() + "#" + size;
+        Pending job = null;
+        Bitmap hit;
+        synchronized (pending) {
+            Context previous = registeredContext.get();
+            if (previous != app) {
+                if (previous != null) previous.unregisterComponentCallbacks(memory);
+                registeredContext = new WeakReference<>(app);
+                app.registerComponentCallbacks(memory);
             }
-        });
-    }
-
-    private static byte[] readAll(InputStream in) throws java.io.IOException {
-        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[16384];
-        int n;
-        while ((n = in.read(buf)) > 0) {
-            bo.write(buf, 0, n);
-            if (bo.size() > 12 * 1024 * 1024) break;
+            hit = cache.get(key);
+            if (hit == null) {
+                job = pending.get(key);
+                if (job != null) {
+                    job.requests.add(request);
+                    request.owner = job;
+                    return request;
+                }
+                job = new Pending(app, u, key, size);
+                job.requests.add(request);
+                request.owner = job;
+                pending.put(key, job);
+            }
         }
-        return bo.toByteArray();
+        if (hit != null) { request.deliver(hit); return request; }
+        try { pool.execute(job); }
+        catch (RejectedExecutionException e) { job.finish(null); }
+        return request;
     }
 
-    /** Listede kucuk resim: once bitmap, yoksa adres; gec gelen sonuc yanlis satira yazilmasin diye etiketlenir */
+    private static Bitmap decode(Context c, Uri uri, int maxPx) throws java.io.IOException {
+        File downloaded = null;
+        HttpURLConnection connection = null;
+        try {
+            String scheme = uri.getScheme();
+            if ("http".equals(scheme) || "https".equals(scheme)) {
+                connection = (HttpURLConnection) new URL(uri.toString()).openConnection();
+                connection.setConnectTimeout(6000);
+                connection.setReadTimeout(8000);
+                if (connection.getContentLengthLong() > MAX_ENCODED_BYTES) throw new java.io.IOException("artwork too large");
+                downloaded = File.createTempFile("music-art-", ".tmp", c.getCacheDir());
+                try (InputStream in = connection.getInputStream(); FileOutputStream out = new FileOutputStream(downloaded)) {
+                    byte[] buffer = new byte[16384];
+                    int count, total = 0;
+                    while ((count = in.read(buffer)) != -1) {
+                        total += count;
+                        if (total > MAX_ENCODED_BYTES) throw new java.io.IOException("artwork too large");
+                        out.write(buffer, 0, count);
+                    }
+                }
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            try (InputStream in = open(c, uri, downloaded)) { BitmapFactory.decodeStream(in, null, options); }
+            int longest = Math.max(options.outWidth, options.outHeight);
+            if (options.outWidth <= 0 || options.outHeight <= 0) return null;
+            int sample = 1;
+            while (sample < (1 << 30) && longest / (sample * 2) >= maxPx) sample *= 2;
+            options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            Bitmap decoded;
+            try (InputStream in = open(c, uri, downloaded)) { decoded = BitmapFactory.decodeStream(in, null, options); }
+            if (decoded == null) return null;
+            longest = Math.max(decoded.getWidth(), decoded.getHeight());
+            if (longest <= maxPx) return decoded;
+            float scale = (float) maxPx / longest;
+            Bitmap resized = Bitmap.createScaledBitmap(decoded, Math.max(1, Math.round(decoded.getWidth() * scale)),
+                    Math.max(1, Math.round(decoded.getHeight() * scale)), true);
+            if (resized != decoded) decoded.recycle();
+            return resized;
+        } finally {
+            if (connection != null) connection.disconnect();
+            if (downloaded != null) downloaded.delete();
+        }
+    }
+
+    private static InputStream open(Context c, Uri uri, File downloaded) throws java.io.IOException {
+        InputStream in = downloaded == null ? c.getContentResolver().openInputStream(uri) : new FileInputStream(downloaded);
+        if (in == null) throw new java.io.IOException("artwork stream unavailable");
+        return in;
+    }
+
+    /** Recycled rows cancel stale work and are never retained by an image request. */
+    private static final class Binding { Request request; }
+
     public static void into(Context c, final ImageView iv, Bitmap bm, Uri u, int px, final int placeholder) {
-        iv.setTag(u);
+        Object old = iv.getTag();
+        if (old instanceof Binding && ((Binding) old).request != null) ((Binding) old).request.cancel();
+        final Binding binding = new Binding();
+        iv.setTag(binding);
         if (bm != null) { iv.clearColorFilter(); iv.setPadding(0, 0, 0, 0); iv.setImageBitmap(bm); return; }
         iv.setImageResource(placeholder);
         if (u == null) return;
-        final Uri want = u;
-        load(c, u, px, new Done() {
+        final WeakReference<ImageView> target = new WeakReference<>(iv);
+        binding.request = load(c, u, px, new Done() {
             public void done(Bitmap b) {
-                if (b != null && want.equals(iv.getTag())) { iv.clearColorFilter(); iv.setPadding(0, 0, 0, 0); iv.setImageBitmap(b); }
+                ImageView view = target.get();
+                if (b != null && view != null && view.getTag() == binding) {
+                    view.clearColorFilter(); view.setPadding(0, 0, 0, 0); view.setImageBitmap(b);
+                }
             }
         });
     }
 
-    private static Bitmap soft(Bitmap src) {
-        try {
-            if (Build23.isHardware(src)) return src.copy(Bitmap.Config.ARGB_8888, false);
-        } catch (Throwable e) { }
-        return src;
+    /** Downscale before software readback; never copy a full-resolution hardware cover. */
+    private static Bitmap small(Bitmap src, int width, int height) {
+        Bitmap scaled = Bitmap.createScaledBitmap(src, width, height, true);
+        Bitmap result = scaled.copy(Bitmap.Config.ARGB_8888, true);
+        if (scaled != src) scaled.recycle();
+        return result;
     }
 
     /** Arka plan icin bulanik kucuk kopya; ImageView buyuturken yumusatir */
     public static Bitmap blur(Bitmap src) {
         if (src == null) return null;
         try {
-            src = soft(src);
             int w = 40;
             int h = Math.max(1, Math.min(80, Math.round(40f * src.getHeight() / Math.max(1, src.getWidth()))));
-            Bitmap s = Bitmap.createScaledBitmap(src, w, h, true).copy(Bitmap.Config.ARGB_8888, true);
-            int[] px = new int[w * h];
-            s.getPixels(px, 0, w, 0, 0, w, h);
+            Bitmap bitmap = small(src, w, h);
+            int[] pixels = new int[w * h];
+            int[] scratch = new int[Math.max(w, h)];
+            bitmap.getPixels(pixels, 0, w, 0, 0, w, h);
             for (int pass = 0; pass < 3; pass++) {
-                boxH(px, w, h, 3);
-                boxV(px, w, h, 3);
+                boxH(pixels, w, h, 3, scratch);
+                boxV(pixels, w, h, 3, scratch);
             }
-            s.setPixels(px, 0, w, 0, 0, w, h);
-            return s;
+            bitmap.setPixels(pixels, 0, w, 0, 0, w, h);
+            return bitmap;
         } catch (Throwable e) { return null; }
     }
 
-    private static void boxH(int[] p, int w, int h, int r) {
-        int[] out = new int[w];
+    private static void boxH(int[] p, int w, int h, int r, int[] out) {
         for (int y = 0; y < h; y++) {
             int off = y * w;
             for (int x = 0; x < w; x++) {
@@ -153,8 +301,7 @@ public class MusicArt {
         }
     }
 
-    private static void boxV(int[] p, int w, int h, int r) {
-        int[] out = new int[h];
+    private static void boxV(int[] p, int w, int h, int r, int[] out) {
         for (int x = 0; x < w; x++) {
             for (int y = 0; y < h; y++) {
                 int a = 0, rr = 0, g = 0, b = 0, n = 0;
@@ -172,33 +319,27 @@ public class MusicArt {
     /** Kapaktaki en canli renk; temaya gore okunur tona getirilir. Bulunamazsa 0 */
     public static int accent(Bitmap src, boolean light) {
         if (src == null) return 0;
+        Bitmap sample = null;
         try {
-            src = soft(src);
-            Bitmap s = Bitmap.createScaledBitmap(src, 24, 24, true);
-            float best = 0;
-            float[] hsvBest = null;
+            sample = small(src, 24, 24);
+            int[] pixels = new int[24 * 24];
+            sample.getPixels(pixels, 0, 24, 0, 0, 24, 24);
+            float best = 0, hue = 0, saturation = 0;
             float[] hsv = new float[3];
-            for (int y = 0; y < 24; y++) for (int x = 0; x < 24; x++) {
-                Color.colorToHSV(s.getPixel(x, y), hsv);
+            for (int color : pixels) {
+                Color.colorToHSV(color, hsv);
                 if (hsv[2] < 0.25f) continue;
                 float score = hsv[1] * (0.4f + hsv[2]);
-                if (score > best) { best = score; hsvBest = hsv.clone(); }
+                if (score > best) { best = score; hue = hsv[0]; saturation = hsv[1]; }
             }
-            if (hsvBest == null || hsvBest[1] < 0.18f) return 0;
-            if (light) { hsvBest[1] = clamp(hsvBest[1], 0.5f, 0.9f); hsvBest[2] = 0.52f; }
-            else { hsvBest[1] = clamp(hsvBest[1], 0.35f, 0.7f); hsvBest[2] = 0.95f; }
-            return Color.HSVToColor(hsvBest);
+            if (saturation < 0.18f) return 0;
+            hsv[0] = hue;
+            hsv[1] = clamp(saturation, light ? 0.5f : 0.35f, light ? 0.9f : 0.7f);
+            hsv[2] = light ? 0.52f : 0.95f;
+            return Color.HSVToColor(hsv);
         } catch (Throwable e) { return 0; }
+        finally { if (sample != null) sample.recycle(); }
     }
 
     private static float clamp(float v, float a, float b) { return Math.max(a, Math.min(b, v)); }
-
-    /** API 26+ donanim bitmap kontrolu (derleme API 23 ile yapildigi icin yansima) */
-    static class Build23 {
-        static boolean isHardware(Bitmap b) {
-            if (android.os.Build.VERSION.SDK_INT < 26) return false;
-            Bitmap.Config c = b.getConfig();
-            return c != null && "HARDWARE".equals(c.name());
-        }
-    }
 }

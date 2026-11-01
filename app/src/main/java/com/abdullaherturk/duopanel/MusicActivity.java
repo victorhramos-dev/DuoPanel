@@ -128,6 +128,7 @@ public class MusicActivity extends Activity implements MusicHub.Listener {
     @Override
     protected void onPause() {
         resumed = false;
+        cancelArtworkLoads();
         hub.remove(this);
         h.removeCallbacks(tick);
         getSharedPreferences("duo", 4).unregisterOnSharedPreferenceChangeListener(prefs);
@@ -161,10 +162,28 @@ public class MusicActivity extends Activity implements MusicHub.Listener {
         if (UiUtil.isLight(this) != light) recreate();
     }
 
+    private MusicArt.Request primaryArt, fallbackArt;
+    private int artGeneration;
+
+    private void cancelArtworkLoads() {
+        if (primaryArt != null) primaryArt.cancel();
+        if (fallbackArt != null) fallbackArt.cancel();
+        primaryArt = fallbackArt = null;
+        if (!artDone) { artUri = null; artKey = null; }
+    }
+
     @Override
     protected void onDestroy() {
+        resumed = false;
         h.removeCallbacksAndMessages(null);
+        cancelArtworkLoads();
         hub.remove(this);
+        artKey = null;
+        artBmp = null;
+        artGeneration = 0;
+        lastBg = null;
+        if (art != null) art.setImageDrawable(null);
+        if (bg != null) bg.setImageDrawable(null);
         super.onDestroy();
     }
 
@@ -518,7 +537,7 @@ public class MusicActivity extends Activity implements MusicHub.Listener {
     // ---------------- verileri bagla ----------------
 
     private void bindNow() {
-        if (title == null) return;
+        if (title == null || !resumed) return;
         MediaMetadata m = hub.metadata();
         String pkg = hub.pkg();
         String t = m == null ? null : first(m, MediaMetadata.METADATA_KEY_TITLE, MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
@@ -550,13 +569,13 @@ public class MusicActivity extends Activity implements MusicHub.Listener {
         final String key = (t == null ? "" : t) + "|" + (a == null ? "" : a);
         boolean newSong = !key.equals(artKey);
         if (newSong && artKey != null) h.postDelayed(new Runnable() { public void run() { scrollToCurrent(false, false); } }, 400);
-        if (newSong) { artKey = key; artDone = false; artUri = null; }
+        if (newSong) { cancelArtworkLoads(); artKey = key; artDone = false; artUri = null; }
         if (!artDone) {
             if (bm != null) { setArt(bm); artDone = true; }
             else if (u != null) {
                 if (!u.equals(artUri)) {
                     artUri = u;
-                    MusicArt.load(this, u, dp(320), new MusicArt.Done() {
+                    primaryArt = MusicArt.load(this, u, dp(320), new MusicArt.Done() {
                         public void done(Bitmap b) {
                             if (b != null && key.equals(artKey) && !artDone) { setArt(b); artDone = true; }
                         }
@@ -568,7 +587,7 @@ public class MusicActivity extends Activity implements MusicHub.Listener {
                 MusicHub.Song hit = t == null ? null : hub.findSong(t, a);
                 if (hit != null && hit.icon != null) setArt(hit.icon);
                 else if (hit != null && hit.iconUri != null) {
-                    MusicArt.load(this, hit.iconUri, dp(320), new MusicArt.Done() {
+                    fallbackArt = MusicArt.load(this, hit.iconUri, dp(320), new MusicArt.Done() {
                         public void done(Bitmap b) { if (b != null && key.equals(artKey) && !artDone) setArt(b); }
                     });
                     if (u == null) setArt(null);
@@ -580,7 +599,10 @@ public class MusicActivity extends Activity implements MusicHub.Listener {
     }
 
     private void setArt(Bitmap b) {
+        int generation = b == null ? 0 : b.getGenerationId();
+        boolean changed = b != artBmp || generation != artGeneration;
         artBmp = b;
+        artGeneration = generation;
         if (art != null) {
             if (b != null) {
                 art.setBackground(null);
@@ -603,9 +625,11 @@ public class MusicActivity extends Activity implements MusicHub.Listener {
                 });
             }
         }
-        int ac = MusicArt.accent(b, light);
-        accent = ac != 0 ? ac : themeAccent;
-        paintBackground();
+        if (changed) {
+            int ac = MusicArt.accent(b, light);
+            accent = ac != 0 ? ac : themeAccent;
+            paintBackground();
+        }
         tint();
     }
 

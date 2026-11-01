@@ -63,7 +63,12 @@ public class OverlayService extends Service implements SplitController.Listener 
     private Location lastLoc;
     private long lastFix, lastWx;
     private float azimuth = Float.NaN;
-    private String lastClock = "";
+    private long lastClockMinute = Long.MIN_VALUE;
+    private int lastSpeed = Integer.MIN_VALUE, lastGps = -1;
+    private String lastDirection = "";
+    private static final String[] DIRECTIONS = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+    private static final String[] DIRECTIONS_TR = {"K", "KD", "D", "GD", "G", "GB", "B", "KB"};
+    private final float[] sensorRotation = new float[9], sensorRemapped = new float[9], sensorOrientation = new float[3];
 
     /** Baska surecten (muzik paneli) ikiliyi geri getir */
     public static void requestResumePair(Context c) {
@@ -195,6 +200,7 @@ public class OverlayService extends Service implements SplitController.Listener 
     public void onSplitChanged(boolean active) {
         if (bubble != null) bubble.setVisibility(active ? View.GONE : View.VISIBLE);
         if (strip != null) strip.setVisibility(active ? View.VISIBLE : View.GONE);
+        if (active && strip != null) startSensors(); else stopSensors();
         if (!active) dismissPopup();
     }
 
@@ -203,6 +209,14 @@ public class OverlayService extends Service implements SplitController.Listener 
     private void removeAll() {
         dismissPopup();
         if (strip != null) { try { wm.removeView(strip); } catch (Exception e) { } strip = null; }
+        stripLp = null;
+        tvClock = tvDay = tvDate = tvTemp = tvSpeed = tvDir = null;
+        ivLeft = ivRight = ivWeather = ivCompass = null;
+        dotGps = wxBox = null;
+        lastClockMinute = Long.MIN_VALUE;
+        lastSpeed = Integer.MIN_VALUE;
+        lastGps = -1;
+        lastDirection = "";
         removeStripMenu();
         removeDivider();
         if (bubble != null) { try { wm.removeView(bubble); } catch (Exception e) { } bubble = null; }
@@ -224,7 +238,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         }
         if (s) addStrip();
         if (b) addBubble();
-        if (s) startSensors(); else stopSensors();
+        if (s && SplitController.isActive()) startSensors(); else stopSensors();
         h.removeCallbacks(tick);
         h.post(tick);
     }
@@ -321,7 +335,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         });
         try { wm.addView(strip, lp); } catch (Exception e) { SplitLog.add("strip add failed: " + e); strip = null; return; }
         updateIcons();
-        lastClock = "";
+        lastClockMinute = Long.MIN_VALUE;
         tickOnce();
         if (hasWx) showWeather(wxTemp, wxCode, wxDay);
         strip.setVisibility(SplitController.isActive() ? View.VISIBLE : View.GONE);
@@ -375,34 +389,44 @@ public class OverlayService extends Service implements SplitController.Listener 
         public void run() {
             tickOnce();
             updateDivider();
-            h.postDelayed(this, 250);   // saniyede 4 guncelleme (pusula akici donsun)
+            boolean animated = (strip != null && strip.getVisibility() == View.VISIBLE) || divBtn != null;
+            h.postDelayed(this, animated ? 250 : 1000);
         }
     };
 
     private void tickOnce() {
-        if (strip == null) return;
-        Date now = new Date();
-        String clk = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(now);
-        if (!clk.equals(lastClock)) {
-            lastClock = clk;
-            tvClock.setText(clk);
-            tvDay.setText(new SimpleDateFormat("EEEE", Locale.getDefault()).format(now));
-            tvDate.setText(new SimpleDateFormat("d MMMM", Locale.getDefault()).format(now));
-        }
+        if (strip == null || strip.getVisibility() != View.VISIBLE) return;
         long t = System.currentTimeMillis();
+        long minute = t / 60000;
+        if (minute != lastClockMinute) {
+            lastClockMinute = minute;
+            Date now = new Date(t);
+            Locale locale = Locale.getDefault();
+            tvClock.setText(new SimpleDateFormat("HH:mm", locale).format(now));
+            tvDay.setText(new SimpleDateFormat("EEEE", locale).format(now));
+            tvDate.setText(new SimpleDateFormat("d MMMM", locale).format(now));
+        }
         boolean fix = lastLoc != null && t - lastFix < 6000;
-        dotGps.setBackgroundResource(fix ? R.drawable.bg_dot_ok : R.drawable.bg_dot_off);
+        int gps = fix ? 1 : 0;
+        if (gps != lastGps) {
+            lastGps = gps;
+            dotGps.setBackgroundResource(fix ? R.drawable.bg_dot_ok : R.drawable.bg_dot_off);
+        }
+        int speed = -1;
         if (fix && lastLoc.hasSpeed()) {
             int kmh = Math.round(lastLoc.getSpeed() * 3.6f);
-            tvSpeed.setText(String.valueOf(kmh < 2 ? 0 : kmh));
-        } else tvSpeed.setText("--");
+            speed = kmh < 2 ? 0 : kmh;
+        }
+        if (speed != lastSpeed) {
+            lastSpeed = speed;
+            tvSpeed.setText(speed < 0 ? "--" : String.valueOf(speed));
+        }
         float hd = Float.NaN;
         if (fix && lastLoc.hasBearing() && lastLoc.hasSpeed() && lastLoc.getSpeed() > 1.5f) hd = lastLoc.getBearing();
         else if (!Float.isNaN(azimuth)) hd = azimuth;
-        if (!Float.isNaN(hd)) {
-            ivCompass.setRotation(hd);
-            tvDir.setText(dirName(hd));
-        } else tvDir.setText("--");
+        if (!Float.isNaN(hd)) ivCompass.setRotation(hd);
+        String direction = Float.isNaN(hd) ? "--" : dirName(hd);
+        if (!direction.equals(lastDirection)) { lastDirection = direction; tvDir.setText(direction); }
         if (!locOn && t - lastLocTry > 10000) registerLocation();
         double[] manual = Prefs.wxLatLon(this);
         if (manual == null && lastLoc == null && !hasWx && t - startedAt > 20000 && t - lastIpWx > 15 * 60 * 1000L) {
@@ -417,10 +441,8 @@ public class OverlayService extends Service implements SplitController.Listener 
     }
 
     private String dirName(float deg) {
-        boolean tr = "tr".equals(Locale.getDefault().getLanguage());
-        String[] n = tr ? new String[]{"K", "KD", "D", "GD", "G", "GB", "B", "KB"}
-                : new String[]{"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-        return n[Math.round(((deg % 360 + 360) % 360) / 45f) % 8];
+        String[] names = "tr".equals(Locale.getDefault().getLanguage()) ? DIRECTIONS_TR : DIRECTIONS;
+        return names[Math.round(((deg % 360 + 360) % 360) / 45f) % 8];
     }
 
     // ---------- konum / pusula ----------
@@ -438,7 +460,7 @@ public class OverlayService extends Service implements SplitController.Listener 
 
     private final SensorEventListener sl = new SensorEventListener() {
         public void onSensorChanged(SensorEvent e) {
-            float[] r = new float[9], m = new float[9], o = new float[3];
+            float[] r = sensorRotation, m = sensorRemapped, o = sensorOrientation;
             SensorManager.getRotationMatrixFromVector(r, e.values);
             // ekran dondurulmusse eksenleri ekrana gore cevir (yatay tablet vb.)
             int ax = SensorManager.AXIS_X, ay = SensorManager.AXIS_Y;

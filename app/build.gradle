@@ -5,6 +5,7 @@ android {
     }
     testOptions {
         unitTests.includeAndroidResources = true
+        unitTests.all { jvmArgs '--add-opens=java.base/java.io=ALL-UNNAMED' }
     }
     // Kalici imza: anahtar ve sifreler depoya konmaz, proje kokundeki keystore.properties dosyasindan okunur
     def ksFile = rootProject.file('keystore.properties')
@@ -32,8 +33,8 @@ android {
         applicationId 'com.abdullaherturk.duopanel.streamboxfix'
         minSdk 24
         targetSdk 33
-        versionCode 2
-        versionName '1.0.1-streambox'
+        versionCode 4
+        versionName '1.0.3-streambox'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
 }
