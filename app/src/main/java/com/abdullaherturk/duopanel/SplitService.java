@@ -94,9 +94,10 @@ public class SplitService extends AccessibilityService {
     @Override
     public void onInterrupt() { }
 
-    @Override
-    public boolean onUnbind(Intent i) {
+public boolean onUnbind(Intent i) {
         if (bootStartup != null) { bootStartup.close(); bootStartup = null; }
+        pairToken = nextPairGeneration();
+        queuedPair = null;
         ratioToken++;
         ratioArmed = false;
         blockedAt = -1;
@@ -261,16 +262,66 @@ public class SplitService extends AccessibilityService {
 
     public void runPair(final String left, final String right) { runPair(left, right, false); }
 
+    private int pairToken;
+    private String launchLeft, launchRight;
+    private Runnable queuedPair;
+
+    private static int nextPairToken;
+
+    private static synchronized int nextPairGeneration() { return ++nextPairToken; }
+    int pairGeneration() { return pairToken; }
+
+    private String replacementLeft, replacementRight;
+    private boolean pairRequiresCoverage;
+
+    /** Only picker replacement waits for a fully usable new pair before resizing it. */
+    void expectPickerReplacement(String left, String right) {
+        replacementLeft = left;
+        replacementRight = right;
+    }
+
+    boolean pairLaunchCurrent(String left, String right, int token) {
+        return token == pairToken && selectedPair(left, right);
+    }
+
     /** keep=true: yuzen simgeden donus; uygulamalar sadece one getirilir, surus istegi gonderilmez */
-    public void runPair(final String left, final String right, final boolean keep) {
-        pairKeep = keep;
+public void runPair(final String left, final String right, final boolean keep) {
+        if (!selectedPair(left, right)) return;
         if (h == null) h = new Handler(getMainLooper());
-        ratioOpAt = SystemClock.uptimeMillis() + 20000;   // ikili acilirken (denemeler dahil) orani izleme
+        long now = SystemClock.elapsedRealtime();
+        if (now < busyUntil) {
+            if (queuedPair == null && left.equals(launchLeft) && right.equals(launchRight)) {
+                SplitLog.add("busy, same pair ignored");
+                return;
+            }
+            final int token = pairToken = nextPairGeneration();
+            ratioToken++;
+            if (queuedPair != null) h.removeCallbacks(queuedPair);
+            queuedPair = new Runnable() {
+                public void run() {
+                    if (!pairLaunchCurrent(left, right, token)) { queuedPair = null; return; }
+                    long remaining = busyUntil - SystemClock.elapsedRealtime();
+                    if (remaining > 0) { h.postDelayed(this, remaining + 1); return; }
+                    queuedPair = null;
+                    runPair(left, right, keep);
+                }
+            };
+            h.postDelayed(queuedPair, busyUntil - now + 1);
+            SplitLog.add("pair queued: " + left + " + " + right);
+            return;
+        }
+        if (queuedPair != null) h.removeCallbacks(queuedPair);
+        queuedPair = null;
+        final int token = pairToken = nextPairGeneration();
+        launchLeft = left;
+        launchRight = right;
+        pairKeep = keep;
+        pairRequiresCoverage = left.equals(replacementLeft) && right.equals(replacementRight);
+        replacementLeft = replacementRight = null;
+        ratioOpAt = SystemClock.uptimeMillis() + 20000;
         ratioArmed = false;
         blockedAt = -1;
         seenRatio = -1;
-        long now = SystemClock.elapsedRealtime();
-        if (now < busyUntil) { SplitLog.add("busy, ignored"); return; }
         busyUntil = now + 25000;
         ratioToken++;
         if (pendingRatio != null) h.removeCallbacks(pendingRatio);
@@ -279,14 +330,18 @@ public class SplitService extends AccessibilityService {
         floatFixed = false;
         floatStuck = false;
         SplitLog.add("pair: " + left + " + " + right + " (API " + Build.VERSION.SDK_INT + ")");
-        // eski muzik paneli gorevi tam ekran one gelip digerini ezmesin: yalnizca ilk denemede, ana is parcaciginin disinda kapat
         if (AppList.isPanel(this, left) || AppList.isPanel(this, right)) {
-            new Thread(new Runnable() { public void run() { PairActivity.closePanelTask(SplitService.this); } }).start();
+            new Thread(new Runnable() {
+                public void run() {
+                    if (pairLaunchCurrent(left, right, token)) PairActivity.closePanelTask(SplitService.this);
+                }
+            }).start();
         }
         quietMaps();
         performGlobalAction(GLOBAL_ACTION_HOME);
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 if (Build.VERSION.SDK_INT >= 32) {
                     try { PairActivity.launch(SplitService.this, left, right, keep); return; }
                     catch (Exception e) { SplitLog.add("pair activity failed: " + e); }
@@ -297,17 +352,29 @@ public class SplitService extends AccessibilityService {
     }
 
     /** PairActivity bitince cagirilir: bolunme olmadiysa diger yontemlere gec */
-    public void afterPair(final String left, final String right) { afterPair(left, right, 0); }
+public void afterPair(final String left, final String right) {
+        afterPair(left, right, pairToken);
+    }
 
-    private void afterPair(final String left, final String right, final int waited) {
+void afterPair(final String left, final String right, final int token) {
+        checkPair(left, right, 0, token);
+    }
+
+    private void checkPair(final String left, final String right, final int waited, final int token) {
+        if (!pairLaunchCurrent(left, right, token)) return;
         if (h == null) h = new Handler(getMainLooper());
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 String[] lr = currentPair();
-                if (lr == null && waited < 3 && isSplitActive()) {
-                    // iki bolme var ama biri henuz tanimlanamadi (yavas acilan uygulama, or. Yandex Navi): bozup yeniden deneme, bekle
-                    SplitLog.add("split formed, waiting for app to finish loading (" + (waited + 1) + ")");
-                    afterPair(left, right, waited + 1);
+                SplitGeometry observed = pairRequiresCoverage ? splitGeometry() : null;
+                boolean incompleteReplacement = pairRequiresCoverage && (observed == null || !observed.coversScreen());
+                if ((lr == null || incompleteReplacement) && isSplitActive()) {
+                    // A loading pane is not a failed launch. Bound observation, never relaunch it.
+                    if (waited < 20) {
+                        SplitLog.add("split formed, waiting for identified covering app panes (" + (waited + 1) + ")");
+                        checkPair(left, right, waited + 1, token);
+                    } else SplitLog.add("pair stopped: app panes remain unidentified or incomplete; requested ratio kept");
                     return;
                 }
                 dumpWindows();
@@ -319,9 +386,13 @@ public class SplitService extends AccessibilityService {
                         SplitLog.add("floating window fixed, reopening pair");
                         h.postDelayed(new Runnable() {
                             public void run() {
+                                if (!pairLaunchCurrent(left, right, token)) return;
                                 performGlobalAction(GLOBAL_ACTION_HOME);
                                 h.postDelayed(new Runnable() {
-                                    public void run() { PairActivity.launch(SplitService.this, left, right, true); }
+                                    public void run() {
+                                        if (pairLaunchCurrent(left, right, token))
+                                            PairActivity.launch(SplitService.this, left, right, true);
+                                    }
                                 }, 900);
                             }
                         }, 1200);
@@ -336,14 +407,16 @@ public class SplitService extends AccessibilityService {
                     return;
                 }
                 if (lr != null && lr[0].equals(right) && lr[1].equals(left)) {
-                    // bu cihaz yan uygulamayi diger tarafa koyuyor: ogren. Ikili kuruldu, bozup yeniden denemek
-                    // (Tbox'ta) zincirleme bozulmalara yol aciyordu: oldugu gibi kabul et, sonraki acilis dogru tarafta olur
+                    int requested = Prefs.ratio(SplitService.this, left, right);
                     boolean sw = !Prefs.get(SplitService.this, "swap", false);
                     Prefs.set(SplitService.this, "swap", sw);
                     SplitLog.add("sides reversed, learned adjacent side (swap=" + sw + "), kept as is");
                     String nl = right, nr = left;
+                    Prefs.setRatio(SplitService.this, nl, nr, 100 - requested);
                     Prefs.setSide(SplitService.this, Prefs.LEFT, nl);
                     Prefs.setSide(SplitService.this, Prefs.RIGHT, nr);
+                    launchLeft = nl;
+                    launchRight = nr;
                     OverlayService.refreshIcons();
                     pairBroken = false;
                     busyUntil = 0;
@@ -358,7 +431,10 @@ public class SplitService extends AccessibilityService {
                     SplitLog.add("retrying adjacent method (attempt " + attempt + ")");
                     performGlobalAction(GLOBAL_ACTION_HOME);
                     h.postDelayed(new Runnable() {
-                        public void run() { PairActivity.launch(SplitService.this, left, right, pairKeep); }
+                        public void run() {
+                            if (pairLaunchCurrent(left, right, token))
+                                PairActivity.launch(SplitService.this, left, right, pairKeep);
+                        }
                     }, 900);
                 } else {
                     SplitLog.add("adjacent method failed, trying system methods");
@@ -370,10 +446,12 @@ public class SplitService extends AccessibilityService {
 
     /** Surus modu acikken Haritalar eski ciftten geri gelirse istegi kacirabilir: bir kez daha gonder */
     private void resendMapsDrive(String left, String right) {
+        final int token = pairToken;
         if (!Prefs.mapsDrive(this)) return;
         if (!AppList.MAPS.equals(left) && !AppList.MAPS.equals(right)) return;
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 try {
                     // Haritalar zaten surus modundaysa tekrar gonderme (bir an arama ekranina dusup geri donuyor)
                     if ("drive".equals(mapsStateNow())) { SplitLog.add("maps already in drive mode, no re-send"); return; }
@@ -389,10 +467,12 @@ public class SplitService extends AccessibilityService {
 
     /** Ikili geri acilirken Haritalar ana ekranda (sekmeler) geldiyse surus istegini gonder */
     private void resendIfMapsNormal(final String left, final String right) {
+        final int token = pairToken;
         if (!Prefs.mapsDrive(this)) return;
         if (!AppList.MAPS.equals(left) && !AppList.MAPS.equals(right)) return;
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 String st = mapsStateNow();
                 if ("normal".equals(st)) {
                     SplitLog.add("maps came back on main map, sending drive intent");
@@ -427,10 +507,14 @@ public class SplitService extends AccessibilityService {
         return geometry.firstIsLeft ? new String[]{left, right} : new String[]{right, left};
     }
 
-    private void legacy(final String left, final String right) {
+private void legacy(final String left, final String right) {
+        final int token = pairToken;
         start(left, 0);
         h.postDelayed(new Runnable() {
-            public void run() { enterSplit(left, right); }
+            public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
+                enterSplit(left, right);
+            }
         }, 1600);
     }
 
@@ -455,10 +539,11 @@ public class SplitService extends AccessibilityService {
 
     /** Bolunmus ekrandaki iki uygulamanin yerini degistirir:
      *  1) ayrac menusu (Samsung vb.), 2) ayraca cift dokunma (AOSP), 3) ikiliyi yeniden kurma */
+    boolean canNativeSwap() { return SystemClock.elapsedRealtime() >= busyUntil; }
     public void nativeSwap() {
         if (h == null) h = new Handler(getMainLooper());
         long now = SystemClock.elapsedRealtime();
-        if (now < busyUntil) { SplitLog.add("busy, ignored"); return; }
+        if (!canNativeSwap()) { SplitLog.add("busy, ignored"); return; }
         ratioToken++;
         if (pendingRatio != null) h.removeCallbacks(pendingRatio);
         pendingRatio = null;
@@ -489,16 +574,20 @@ public class SplitService extends AccessibilityService {
 
     /** 2) ayraca tek dokun, acilan menude yer degistir ogesini ara */
     private void tapMenuSwap(final String before, final Rect div) {
+        final int token = pairToken;
+        final String left = Prefs.side(this, Prefs.LEFT), right = Prefs.side(this, Prefs.RIGHT);
         boolean t = tap(div.centerX(), div.centerY(), 1);
         SplitLog.add("divider tap: " + t);
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 SplitLog.add("divider menu texts: " + texts());
                 List<AccessibilityNodeInfo> ms = matchesIn(SWAP_ITEM, "com.android.systemui");
                 AccessibilityNodeInfo item = ms.isEmpty() ? null : ms.get(0);
                 if (item != null && click(item)) {
                     SplitLog.add("swap item: " + nodeText(item));
-                    verifySwap(before, 900, new Runnable() { public void run() { gestureSwap(before, div); } });
+                    verifySwap(before, 900, new Runnable() { public void run() {
+                        if (!pairLaunchCurrent(left, right, token)) return; gestureSwap(before, div); } });
                 } else {
                     gestureSwap(before, div);
                 }
@@ -537,8 +626,11 @@ public class SplitService extends AccessibilityService {
     }
 
     private void verifySwap(final String before, long delay, final Runnable onFail) {
+        final int token = pairToken;
+        final String left = Prefs.side(this, Prefs.LEFT), right = Prefs.side(this, Prefs.RIGHT);
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 String after = leftPackage();
                 if (after != null && before != null && !after.equals(before)) {
                     SplitLog.add("native swap OK: left=" + after);
@@ -657,7 +749,7 @@ public class SplitService extends AccessibilityService {
     private static final Pattern FULL = Pattern.compile("(tam|full)", Pattern.CASE_INSENSITIVE);
 
     private void scheduleRatio(final String left, final String right, long delay) {
-        if (left == null || right == null) return;
+        if (!selectedPair(left, right)) return;
         if (h == null) h = new Handler(getMainLooper());
         if (pendingRatio != null) h.removeCallbacks(pendingRatio);
         final int token = ++ratioToken;
@@ -703,15 +795,19 @@ public class SplitService extends AccessibilityService {
      * Yer degistirmeden sonra ayraci SURUKLEME (Tbox'ta ikiliyi bozuyor / sistemi kilitliyordu):
      * ayrac yerinde kalir, o anki konum yeni dizilisin orani olarak kaydedilir.
      */
-    private void keepRatioAfterSwap() {
+private void keepRatioAfterSwap() {
+        final String left = Prefs.side(this, Prefs.LEFT), right = Prefs.side(this, Prefs.RIGHT);
+        final int token = pairToken, ratio = ratioToken;
+        final int requested = Prefs.ratio(this, left, right);
         h.postDelayed(new Runnable() {
             public void run() {
-                String l = Prefs.side(SplitService.this, Prefs.LEFT), r = Prefs.side(SplitService.this, Prefs.RIGHT);
+                if (!pairLaunchCurrent(left, right, token) || ratio != ratioToken
+                        || requested != Prefs.ratio(SplitService.this, left, right)) return;
                 SplitGeometry geometry = splitGeometry();
                 int p = geometry == null ? -1 : geometry.percent();
-                ratioArmed = geometry != null && geometry.coversScreen() && !floatStuck;
-                if (ratioArmed && l != null && r != null && p >= 10 && p <= 90) {
-                    Prefs.setRatio(SplitService.this, l, r, p);
+                ratioArmed = geometry != null && geometry.firstIsLeft && geometry.coversScreen() && !floatStuck;
+                if (ratioArmed && p >= 10 && p <= 90) {
+                    Prefs.setRatio(SplitService.this, left, right, p);
                     SplitLog.add("ratio after swap kept: " + p + "%");
                     OverlayService.refreshRatio();
                 }
@@ -724,7 +820,8 @@ public class SplitService extends AccessibilityService {
             final SplitGeometry previous, final int n, final int token) {
         if (token != ratioToken || !selectedPair(left, right)) return;
         final SplitGeometry geometry = splitGeometry();
-        if (geometry == null || !geometry.sameBounds(previous)) {
+        if (geometry == null || (pairRequiresCoverage && !geometry.coversScreen())
+                || !geometry.sameBounds(previous)) {
             if (n >= 4) {
                 SplitLog.add("ratio stopped: window bounds did not settle");
                 return;
@@ -751,7 +848,10 @@ public class SplitService extends AccessibilityService {
         }
         if (floatStuck) { SplitLog.add("ratio skipped (floating window)"); return; }
         SplitGeometry geometry = splitGeometry();
-        if (geometry == null) return;
+        if (geometry == null || (pairRequiresCoverage && !geometry.coversScreen())) {
+            SplitLog.add("ratio waiting: replacement panes do not cover the usable screen");
+            return;
+        }
         ratioArmed = false;
         blockedAt = -1;
         seenRatio = -1;
@@ -1240,8 +1340,10 @@ public class SplitService extends AccessibilityService {
     }
 
     private void verifyRestore(final String left, final String right, long delay, final boolean again) {
+        final int token = pairToken;
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 String[] lr = currentPair();
                 boolean same = lr != null && ((lr[0].equals(left) && lr[1].equals(right)) || (lr[0].equals(right) && lr[1].equals(left)));
                 if (same) {
@@ -1349,16 +1451,20 @@ public class SplitService extends AccessibilityService {
     }
 
     private void startSecond(final String right, long delay) {
+        final int token = pairToken;
+        final String left = Prefs.side(this, Prefs.LEFT);
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 start(right, FLAG_LAUNCH_ADJACENT);
                 h.postDelayed(new Runnable() {
                     public void run() {
+                        if (!pairLaunchCurrent(left, right, token)) return;
                         dumpWindows();
                         updateActive();
                         busyUntil = 0;
                         if (SplitController.isActive())
-                            scheduleRatio(Prefs.side(SplitService.this, Prefs.LEFT), right, 1500);
+                            scheduleRatio(left, right, 1500);
                     }
                 }, 1500);
             }
@@ -1370,12 +1476,14 @@ public class SplitService extends AccessibilityService {
 
     /** Toggle desteklenmiyorsa: Son uygulamalar > sol kartin menusu > Bolunmus ekran > sag kart */
     private void viaRecents(final String left, final String right) {
+        final int token = pairToken;
         boolean r = performGlobalAction(ACTION_RECENTS);
         SplitLog.add("recents: " + r);
         final String label = AppList.label(this, left);
         final String rlabel = AppList.label(this, right);
         h.postDelayed(new Runnable() {
             public void run() {
+                if (!pairLaunchCurrent(left, right, token)) return;
                 SplitLog.add("recents texts: " + texts());
                 AccessibilityNodeInfo menu = findMenuButton(label);
                 // kart basligi etiketi kisaltabilir ("YouTube Morphe" -> "YouTube")
@@ -1388,6 +1496,7 @@ public class SplitService extends AccessibilityService {
                 SplitLog.add("menu button: " + nodeText(menu) + " click=" + click(menu));
                 h.postDelayed(new Runnable() {
                     public void run() {
+                        if (!pairLaunchCurrent(left, right, token)) return;
                         SplitLog.add("menu texts: " + texts());
                         AccessibilityNodeInfo item = find(SPLIT_ITEM, false);
                         if (item == null) {
@@ -1398,13 +1507,15 @@ public class SplitService extends AccessibilityService {
                         SplitLog.add("split item: " + nodeText(item) + " click=" + click(item));
                         h.postDelayed(new Runnable() {
                             public void run() {
+                                if (!pairLaunchCurrent(left, right, token)) return;
                                 AccessibilityNodeInfo card = findExact(rlabel);
                                 if (card != null && click(card)) {
                                     SplitLog.add("right card picked: " + rlabel);
                                     h.postDelayed(new Runnable() {
                                         public void run() {
+                                            if (!pairLaunchCurrent(left, right, token)) return;
                                             dumpWindows(); updateActive(); busyUntil = 0;
-                                            keepRatioAfterSwap();
+                                            scheduleRatio(left, right, 1500);
                                         }
                                     }, 1500);
                                 } else {

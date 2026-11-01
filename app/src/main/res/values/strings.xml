@@ -117,6 +117,9 @@
     <string name="all_apps_left">All apps — replace left</string>
     <string name="all_apps_right">All apps — replace right</string>
     <string name="strip_position">Info strip position</string>
-    <string name="strip_edge">EDGE — fixed at the top edge</string>
+    <string name="strip_edge">LEFT — collapsible sidebar</string>
+    <string name="strip_edge_right">RIGHT — collapsible sidebar</string>
+    <string name="strip_open">Open info sidebar</string>
+    <string name="strip_close">Close info sidebar</string>
     <string name="strip_floating">FLOATING — draggable, remembers position</string>
 </resources>

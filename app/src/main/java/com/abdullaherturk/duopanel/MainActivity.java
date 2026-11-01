@@ -76,7 +76,7 @@ public class MainActivity extends Activity {
     private final android.content.SharedPreferences.OnSharedPreferenceChangeListener prefListener =
             new android.content.SharedPreferences.OnSharedPreferenceChangeListener() {
                 public void onSharedPreferenceChanged(android.content.SharedPreferences sp, String key) {
-                    if ("bubble".equals(key) || "strip".equals(key) || "stripEdge".equals(key)) {
+                    if ("bubble".equals(key) || "strip".equals(key) || "stripEdge".equals(key) || "stripRight".equals(key)) {
                         runOnUiThread(new Runnable() {
                             public void run() {
                                 bindSwitch(R.id.sw_bubble, "bubble", true, true);
@@ -122,13 +122,18 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void bindStripPosition() {
+private void bindStripPosition() {
         final android.widget.RadioGroup group = (android.widget.RadioGroup) findViewById(R.id.strip_position);
         group.setOnCheckedChangeListener(null);
-        group.check(Prefs.stripEdge(this) ? R.id.strip_edge : R.id.strip_floating);
+        group.check(!Prefs.stripEdge(this) ? R.id.strip_floating
+                : Prefs.stripRight(this) ? R.id.strip_edge_right : R.id.strip_edge);
         group.setOnCheckedChangeListener(new android.widget.RadioGroup.OnCheckedChangeListener() {
             public void onCheckedChanged(android.widget.RadioGroup g, int id) {
-                Prefs.setStripEdge(MainActivity.this, id == R.id.strip_edge);
+                if (id != R.id.strip_edge && id != R.id.strip_edge_right && id != R.id.strip_floating) return;
+                android.content.SharedPreferences.Editor editor = Prefs.sp(MainActivity.this).edit();
+                editor.putBoolean("stripEdge", id != R.id.strip_floating);
+                if (id != R.id.strip_floating) editor.putBoolean("stripRight", id == R.id.strip_edge_right);
+                editor.apply();
                 OverlayService.refresh(MainActivity.this);
             }
         });

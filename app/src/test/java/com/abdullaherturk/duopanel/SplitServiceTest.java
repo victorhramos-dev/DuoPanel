@@ -412,6 +412,102 @@ public class SplitServiceTest {
         assertNull(accessibility.getNextStartedActivity());
     }
 
+    @Test public void slowPaneIsNotRelaunchedAfterTheOriginalThreeIdentificationChecks() {
+        accessibility.setWindows(Arrays.asList(
+                window(1, LEFT, new Rect(0, 0, 696, 400)),
+                window(1, "example.loading", new Rect(704, 0, 1000, 400)),
+                window(5, "com.android.systemui", new Rect(692, 0, 708, 400))));
+        service.afterPair(LEFT, RIGHT);
+        idle(9000);
+        assertTrue(accessibility.getGesturesDispatched().isEmpty());
+        assertNull(accessibility.getNextStartedActivity());
+        pair(696, 1000, true);
+        idle(3000);
+        assertEquals(1, accessibility.getGesturesDispatched().size());
+        assertEquals(300, gestureEnd(0)[0], 1);
+    }
+
+    @Test public void oemReversalTransfersTheComplementRatherThanAnOldReversePairRatio() {
+        Prefs.setRatio(service, RIGHT, LEFT, 50);
+        accessibility.setWindows(Arrays.asList(
+                window(1, RIGHT, new Rect(0, 0, 296, 400)),
+                window(1, LEFT, new Rect(304, 0, 1000, 400)),
+                window(5, "com.android.systemui", new Rect(292, 0, 308, 400))));
+        service.afterPair(LEFT, RIGHT);
+        idle(2500);
+        assertEquals(RIGHT, Prefs.side(service, Prefs.LEFT));
+        assertEquals(LEFT, Prefs.side(service, Prefs.RIGHT));
+        assertEquals(70, Prefs.ratio(service, RIGHT, LEFT));
+        assertEquals(30, Prefs.ratio(service, LEFT, RIGHT));
+        assertEquals(1, accessibility.getGesturesDispatched().size());
+        assertEquals(700, gestureEnd(0)[0], 1);
+    }
+
+    @Test public void staleAfterPairCannotLearnOemReversalOrUnlockLatestSelection() {
+        service.runPair(LEFT, RIGHT);
+        int old = service.pairGeneration();
+        Prefs.replaceSideKeepingRatio(service, Prefs.LEFT, "example.new");
+        service.runPair("example.new", RIGHT);
+        accessibility.setWindows(Arrays.asList(
+                window(1, RIGHT, new Rect(0, 0, 496, 400)),
+                window(1, "example.new", new Rect(504, 0, 1000, 400)),
+                window(5, "com.android.systemui", new Rect(492, 0, 508, 400))));
+        service.afterPair(LEFT, RIGHT, old);
+        idle(2000);
+        assertEquals("example.new", Prefs.side(service, Prefs.LEFT));
+        assertEquals(RIGHT, Prefs.side(service, Prefs.RIGHT));
+        assertFalse(Prefs.get(service, "swap", false));
+        assertTrue(ReflectionHelpers.<Long>getField(service, "busyUntil")
+                > android.os.SystemClock.elapsedRealtime());
+        assertTrue(accessibility.getGesturesDispatched().isEmpty());
+        assertNull(accessibility.getNextStartedActivity());
+    }
+
+    @Test public void staleGenerationIsRejectedEvenWhenSelectionReturnsToTheSamePair() {
+        service.runPair(LEFT, RIGHT);
+        int old = service.pairGeneration();
+        Prefs.replaceSideKeepingRatio(service, Prefs.LEFT, "example.new");
+        service.runPair("example.new", RIGHT);
+        Prefs.replaceSideKeepingRatio(service, Prefs.LEFT, LEFT);
+        service.runPair(LEFT, RIGHT);
+        pair(696, 1000, true);
+        service.afterPair(LEFT, RIGHT, old);
+        idle(2500);
+        assertTrue(accessibility.getGesturesDispatched().isEmpty());
+        assertNull(accessibility.getNextStartedActivity());
+        idle(24000);
+        android.content.Intent launch = accessibility.getNextStartedActivity();
+        assertNotNull(launch);
+        assertEquals(LEFT, launch.getStringExtra("l"));
+        assertTrue(launch.getIntExtra("g", -1) != old);
+        assertNull(accessibility.getNextStartedActivity());
+    }
+
+    @Test public void busyDuplicateDoesNotRewriteTheInFlightKeepOrRatioTrackingState() {
+        service.runPair(LEFT, RIGHT, true);
+        long operation = ReflectionHelpers.getField(service, "ratioOpAt");
+        int token = service.pairGeneration();
+        idle(100);
+        service.runPair(LEFT, RIGHT, false);
+        assertTrue(ReflectionHelpers.<Boolean>getField(service, "pairKeep"));
+        assertEquals(operation, ReflectionHelpers.<Long>getField(service, "ratioOpAt").longValue());
+        assertEquals(token, service.pairGeneration());
+    }
+
+    @Test public void oldSwapMeasurementCannotOverwriteTheReplacementRatio() {
+        pair(696, 1000, true);
+        ReflectionHelpers.setField(service, "h", new android.os.Handler(Looper.getMainLooper()));
+        ReflectionHelpers.callInstanceMethod(service, "keepRatioAfterSwap");
+        Prefs.replaceSideKeepingRatio(service, Prefs.LEFT, "example.new");
+        accessibility.setWindows(Arrays.asList(
+                window(1, "example.new", new Rect(0, 0, 496, 400)),
+                window(1, RIGHT, new Rect(504, 0, 1000, 400)),
+                window(5, "com.android.systemui", new Rect(492, 0, 508, 400))));
+        idle(2000);
+        assertEquals(30, Prefs.ratio(service, "example.new", RIGHT));
+        assertEquals(30, Prefs.ratio(service, LEFT, RIGHT));
+    }
+
     @Test public void realStartupRestoresThirtyPromptlyWithoutKeep() {
         assertRealStartupRestoresThirtyPromptly(false);
     }

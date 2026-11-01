@@ -37,6 +37,9 @@ public class SplitController {
         // yeniden baslatma gerekti): onceki yer degistirme oturana kadar yenisi yapilmaz
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastSwap < 4000) { SplitLog.add("swap ignored: previous swap still settling"); return; }
+        SplitService s = SplitService.get();
+        boolean nativeSplit = s != null && s.isSplitActive();
+        if (nativeSplit && !s.canNativeSwap()) { SplitLog.add("swap ignored: native transition still busy"); return; }
         lastSwap = now;
         int old = Prefs.ratio(c, l, r);
         Prefs.setSide(c, Prefs.LEFT, r);
@@ -44,8 +47,7 @@ public class SplitController {
         Prefs.setRatio(c, r, l, 100 - old);
         SplitLog.add("swap sides");
         OverlayService.refresh(c);
-        SplitService s = SplitService.get();
-        if (s != null && s.isSplitActive()) s.nativeSwap();
+        if (nativeSplit) s.nativeSwap();
         else launchPair(c);
     }
 

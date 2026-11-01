@@ -55,14 +55,20 @@ public class InfoStripTest {
         ReflectionHelpers.setField(service, "hasWx", true);
         controller.startCommand(0, 1);
         service.onSplitChanged(true);
+        openDrawer();
     }
 
     @After public void teardown() { controller.destroy(); }
 
     private View strip() { return ReflectionHelpers.getField(service, "strip"); }
+
+    private void openDrawer() {
+        EdgeDrawer drawer = ReflectionHelpers.getField(service, "edgeDrawer");
+        if (drawer != null) drawer.handle.performClick();
+    }
     private View popup() { return ReflectionHelpers.getField(service, "popup"); }
     private WindowManager.LayoutParams lp() { return ReflectionHelpers.getField(service, "stripLp"); }
-    private void refresh() { OverlayService.refresh(service); service.onSplitChanged(true); }
+    private void refresh() { OverlayService.refresh(service); service.onSplitChanged(true); openDrawer(); }
     private void touch(View v, int action, long time, float x, float y) {
         MotionEvent event = MotionEvent.obtain(0, time, action, x, y, 0);
         v.dispatchTouchEvent(event);
@@ -84,8 +90,8 @@ public class InfoStripTest {
             refresh();
             service.updateIcons();
             View view = strip();
-            int width = service.getResources().getDisplayMetrics().widthPixels;
-            int height = Math.round(56 * service.getResources().getDisplayMetrics().density);
+            int width = lp().width;
+            int height = lp().height;
             view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
             view.layout(0, 0, width, height);
@@ -109,16 +115,17 @@ public class InfoStripTest {
         Prefs.setStrip(service, 23, 87);
         refresh();
         assertTrue(Prefs.stripEdge(service));
-        assertEquals(WindowManager.LayoutParams.MATCH_PARENT, lp().width);
-        assertEquals(0, lp().x);
-        assertEquals(0, lp().y);
+        assertTrue(lp().width > 0);
+        assertTrue(lp().width < service.getResources().getDisplayMetrics().widthPixels);
+        int x = lp().x, y = lp().y;
         assertEquals(0, lp().flags & WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         drag();
-        assertEquals(0, lp().x);
-        assertEquals(0, lp().y);
+        assertEquals(x, lp().x);
+        assertEquals(y, lp().y);
         // Long-press must still expose settings/hide, but no center action in EDGE.
-        touch(strip(), MotionEvent.ACTION_DOWN, 1000, 1, 1);
-        touch(strip(), MotionEvent.ACTION_UP, 1800, 1, 1);
+        View header = strip().findViewById(R.id.drawer_header);
+        touch(header, MotionEvent.ACTION_DOWN, 1000, 1, 1);
+        touch(header, MotionEvent.ACTION_UP, 1800, 1, 1);
         ViewGroup menu = ReflectionHelpers.getField(service, "stripMenu");
         assertNotNull(menu);
         for (int i = 0; i < menu.getChildCount(); i++) {
@@ -192,6 +199,7 @@ public class InfoStripTest {
         Prefs.setSide(service, Prefs.LEFT, "old.left");
         Prefs.setSide(service, Prefs.RIGHT, "old.right");
         for (int side = 0; side < 2; side++) {
+            openDrawer();
             int id = side == 0 ? R.id.btn_left : R.id.btn_right;
             View button = strip().findViewById(id);
             assertEquals(View.VISIBLE, button.getVisibility());
@@ -225,9 +233,10 @@ public class InfoStripTest {
             RuntimeEnvironment.setQualifiers(qualifiers);
             service.onConfigurationChanged(new Configuration(service.getResources().getConfiguration()));
             service.onSplitChanged(true);
+            openDrawer();
             View view = strip();
-            int width = service.getResources().getDisplayMetrics().widthPixels;
-            int height = Math.round(56 * service.getResources().getDisplayMetrics().density);
+            int width = lp().width;
+            int height = lp().height;
             view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
             view.layout(0, 0, width, height);
             View left = view.findViewById(R.id.btn_left), right = view.findViewById(R.id.btn_right);
@@ -238,7 +247,7 @@ public class InfoStripTest {
             GridView grid = popup().findViewById(R.id.gv_all);
             assertTrue(grid.getLayoutParams().height > 0);
             WindowManager.LayoutParams p = (WindowManager.LayoutParams) popup().getLayoutParams();
-            assertTrue(p.width <= width);
+            assertTrue(p.width <= service.getResources().getDisplayMetrics().widthPixels);
             assertEquals(View.VISIBLE, grid.getVisibility());
         }
     }

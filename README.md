@@ -1,23 +1,27 @@
-# DuoPanel Streambox Fix — 1.0.5-streambox
+# DuoPanel Streambox Fix — 1.0.6-streambox
 
 Fork não oficial do [DuoPanel original](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-), baseado no commit `1b8b897e9114046d5ea19f5ead4f47d02693ced3`, para o Faaftech Streambox Pro conectado à multimídia do Omoda 5 HEV 2026.
 
-[Baixar a última versão](https://github.com/victorhramos-dev/DuoPanel/releases/latest) · [GitHub Actions](https://github.com/victorhramos-dev/DuoPanel/actions)
+[Baixar a última versão](https://github.com/victorhramos-dev/DuoPanel/releases/latest) · [Histórico de versões](CHANGELOG.md) · [GitHub Actions](https://github.com/victorhramos-dev/DuoPanel/actions)
 
-## Melhorias
+## Novidades da 1.0.6
 
-- Duas grades completas de aplicativos, abertas imediatamente e dedicadas aos lados esquerdo e direito.
-- Barra de informações no topo em toda a largura por padrão (EDGE), com escolha EDGE/FLOATING no painel e preservação das coordenadas flutuantes.
+- **Sidebar EDGE recolhida:** a barra de informações agora é um painel vertical na borda esquerda ou direita escolhida. Quando recolhida, somente a lingueta de **24 × 56 dp** fica visível; não há barra permanente no topo ou painel sempre aberto.
+- Toque na lingueta ou puxe-a para dentro para abrir. Use o controle de fechar na mesma borda, deslize de volta para essa borda ou toque fora para recolher. O modo **FLOATING** e suas posições salvas continuam disponíveis.
+- **Troca de aplicativo sem perder a proporção:** escolher pelo histórico ou pela grade **Todos os apps** de qualquer lado mantém 30/70, 70/30 e as demais proporções salvas, em vez de redefinir o novo par para 50/50.
+- Seleções rápidas respeitam a escolha mais recente; respostas atrasadas e a detecção de lados invertidos em sistemas de fabricantes não alteram uma seleção posterior.
+- SWAP durante uma operação ocupada não troca apenas as preferências deixando as janelas para trás. A atividade intermediária de abertura do par retoma corretamente após ser recriada, sem reaproveitar callbacks de uma sessão antiga.
+
+As duas grades completas de aplicativos continuam dedicadas aos lados esquerdo e direito. O SWAP mantém os gestos: toque curto troca os aplicativos; pressão contínua de **3 segundos** inverte somente a proporção (30↔70; 50 permanece), sem trocar aplicativos ou históricos.
+
+## Recursos mantidos
+
 - Inicialização orientada à prontidão, sem espera incondicional de 15 segundos; respeita as preferências automáticas, o bloqueio do dispositivo e evita execuções duplicadas.
-- SWAP: toque curto troca os aplicativos; pressão contínua de 3 segundos inverte somente a proporção (30↔70; 50 permanece), sem trocar aplicativos ou históricos, com cancelamento e suporte de acessibilidade.
+- Restauração direta da proporção salva, sem parada forçada em 50/50. Estados intermediários e encaixes automáticos do divisor não substituem a preferência salva.
+- Capas limitadas pelo maior eixo, pedidos simultâneos compartilhados e cache de 4 MiB, com liberação sob pressão de memória.
+- Liberação de callbacks e referências de telas inativas; GPS e bússola pausam quando a barra fica oculta.
 
-- Exige cobertura completa da área útil e estabilidade das janelas, incluindo barras do sistema, atividades embutidas e fragmentos de uma mesma aplicação.
-- Restaura diretamente a proporção salva, sem parada forçada em 50/50. A espera fixa foi removida quando não há reenvio do Maps em modo direção.
-- Prefere a ação nativa do divisor e só verifica um gesto após sua conclusão. Estados intermediários e encaixes automáticos não substituem a preferência salva.
-- Limita capas pelo maior eixo, compartilha pedidos simultâneos e não acumula downloads codificados em RAM. O cache tem limite de 4 MiB e responde à pressão de memória.
-- Libera callbacks e referências das telas inativas; reduz atualizações repetidas da barra e pausa GPS/bússola quando ela fica oculta.
-
-Os pontos de encaixe e os tamanhos mínimos continuam sendo controlados pelo Android.
+Os pontos de encaixe e os tamanhos mínimos continuam sendo controlados pelo Android e pelos aplicativos. O [changelog](CHANGELOG.md) distingue as novidades de cada versão.
 
 ## Instalação
 
@@ -26,26 +30,28 @@ Os pontos de encaixe e os tamanhos mínimos continuam sendo controlados pelo And
 3. Permita a sobreposição e habilite **DuoPanel Streambox Fix — split screen** em Acessibilidade. Se o Android bloquear essa permissão, use **Informações do app → menu → Permitir configurações restritas**.
 4. Selecione os aplicativos, configure a proporção e teste com o veículo estacionado.
 
-A assinatura pertence ao fork, não ao autor original. A mesma chave é preservada para permitir atualizações das compilações anteriores do Streambox Fix.
+A assinatura pertence ao fork, não ao autor original. A mesma chave é preservada para permitir atualização sobre as compilações anteriores do Streambox Fix, mantendo o pacote e as preferências.
 
 ## Atualizações pelo aplicativo
 
+Este recurso foi introduzido na **1.0.5**, não na 1.0.6.
+
+- Quem usa **1.0.5** pode tocar em **Verificar atualizações** para obter a 1.0.6. Quem usa **1.0.4 ou anterior** precisa instalar o APK da 1.0.6 manualmente.
 - Na tela principal visível, o app consulta as releases estáveis de [`victorhramos-dev/DuoPanel`](https://github.com/victorhramos-dev/DuoPanel/releases/latest) de forma assíncrona, no máximo uma vez a cada 24 horas. **Verificar atualizações**, perto do log, ignora esse intervalo. Boot e abertura automática do par não fazem a consulta.
 - O download só começa ao tocar em **Baixar**; é possível adiar ou cancelar. Sair da tela cancela a operação. Falhas permitem nova tentativa manual.
 - O APK fica no cache privado. Tamanho, SHA-256 (digest da release ou `SHA256SUMS`), pacote, versionCode superior e a mesma assinatura instalada são obrigatórios. Rotação de chave não é aceita automaticamente.
 - A instalação é sempre confirmada no instalador Android. No Android 8+, pode ser necessário permitir instalar apps desconhecidos para o DuoPanel; ao retornar, confirme **Instalar** novamente. Negar ou voltar não reabre configurações automaticamente.
-- Não há serviço periódico, atualização silenciosa ou token GitHub. GitHub recebe as consultas e downloads; indisponibilidade ou limite da API impedem a atualização sem afetar o par.
-- Quem está na versão 1.0.4 precisa instalar a 1.0.5 manualmente para receber este recurso; as próximas versões poderão ser verificadas pelo aplicativo.
-- A implementação passou pela validação automatizada anterior descrita abaixo, mas ainda não foi validada em dispositivo físico ou no veículo. A CI da tag `v1.0.5-streambox` ainda está pendente.
+- Não há serviço periódico, download automático, atualização silenciosa ou token GitHub. GitHub recebe as consultas e downloads; indisponibilidade ou limite da API impedem a atualização sem afetar o par.
 
 ## Compilação e release no GitHub
 
 - `android-ci.yml` executa os testes debug/release em pushes na `main` e pull requests, sem precisar de segredos. Publica os relatórios de teste e lint como artefatos.
 - `release.yml` é acionado por tags `vX.Y.Z-streambox`. Compila, testa, assina e verifica o APK no GitHub Actions antes de outro job publicar o APK e `SHA256SUMS` na GitHub Release. Nenhum APK local é enviado pelo workflow.
 - A versão do manifesto precisa coincidir com a tag. A assinatura APK v2 e a impressão digital do certificado também são verificadas; APKs depuráveis são rejeitados.
+- As notas de cada versão ficam em `.github/release-notes/`; o workflow acrescenta o link da execução que produziu o APK.
 - Os workflows usam JDK 17, Android SDK 34, Build Tools 34.0.0 e Gradle 8.7, com actions fixadas por SHA e checksum da distribuição Gradle.
 
-Para a próxima versão, atualize `versionCode` e `versionName` em `app/build.gradle`, envie o commit à `main` e publique uma tag correspondente. Um rerun manual pode usar `gh workflow run release.yml --ref vX.Y.Z-streambox` em uma tag existente, antes de haver release publicada para ela.
+Para uma nova versão, atualize `versionCode` e `versionName` em `app/build.gradle`, o `CHANGELOG.md` e as notas correspondentes; envie o commit à `main` e publique uma nova tag. Não mova tags nem substitua releases já publicadas. Um rerun manual pode usar `gh workflow run release.yml --ref vX.Y.Z-streambox` em uma tag existente, antes de haver release publicada para ela.
 
 ### Assinatura da CI
 
@@ -60,27 +66,20 @@ O workflow restaura a chave apenas no diretório temporário do runner e a remov
 
 Para desenvolvimento, `keystore.properties` local continua suportado conforme `keystore.properties.example`; `ANDROID_KEYSTORE_PATH` e as variáveis de assinatura acima têm precedência. Os testes podem ser executados com `./gradlew test`, sem chave de release.
 
-## Verificação da versão 1.0.5
+## Verificação e limitações da 1.0.6
 
-- O run anterior `github-update-validation/orun-12-888ae610` passou com **162 testes debug e 162 testes release**, além da geração dos APKs, antes deste bump de versão e do ajuste da fixture de igualdade.
-- A cobertura automatizada do auto update inclui APIs 24, 26 e 33: consulta com a tela visível, botão manual, cancelamento, integridade, compatibilidade e instalação pelo Android.
-- A validação local após estas edições passou com **162 testes debug e 162 testes release**, sem falhas, erros ou skips; `assembleDebug` e `assembleRelease` concluíram. O APK release confirmou versão `1.0.5-streambox`/versionCode `6` e assinatura v2 com o certificado preservado. A CI da tag `v1.0.5-streambox` ainda está pendente. Somente o APK construído, assinado e verificado no GitHub Actions será publicado; nenhum APK local será enviado.
-- O pacote `com.abdullaherturk.duopanel.streamboxfix` e a configuração de assinatura foram preservados. Não houve teste físico no Streambox/Omoda ou no veículo.
+- Na validação local das correções, antes da atualização dos metadados desta versão, passaram **216 testes debug e 216 testes release**, sem falhas, erros ou testes ignorados; `assembleDebug` e `assembleRelease` concluíram.
+- A cobertura inclui abertura e recolhimento da sidebar, rotação e ciclo de vida, substituição por histórico e por ambas as grades, preservação de proporções, SWAP ocupado e rejeição de callbacks antigos. O atualizador mantém cobertura automatizada nas APIs 24, 26 e 33.
+- A publicação exige nova compilação e testes na CI, com verificação de versão, pacote, assinatura v2 e certificado preservado. Somente o APK dessa execução é distribuído, acompanhado de `SHA256SUMS` e do link da execução nas notas da release.
+- Não houve teste físico destas alterações no Streambox/Omoda ou no veículo, nem medição de desempenho nesse hardware. Testes automatizados não substituem essa validação.
+- O lint contém problemas preexistentes e seu relatório na CI permanece não bloqueante, sem novas supressões. Falhas de testes, compilação ou verificação do APK impedem a publicação.
 
-## Verificação da versão 1.0.4
+## Verificações históricas
 
-- 126 testes debug e `assembleDebug` passaram na validação anterior à preparação dos metadados desta versão.
-- A cobertura automatizada inclui inicialização, barra de informações e gestos SWAP: prontidão, preferências, bloqueio, idempotência, modos de apresentação, cancelamento e acessibilidade.
-- A CI exige testes debug/release e compilação antes da publicação. A nova execução de release ainda precisa ser confirmada; a validação anterior não comprova seu resultado.
-- Não houve validação física destas alterações no Streambox/Omoda nem medição de desempenho físico. As verificações de emulador abaixo pertencem somente à versão 1.0.3.
-
-## Verificação histórica da versão 1.0.3
-
-- 78 casos em debug e 78 em release, incluindo cobertura de APIs 28, 30 e 33: geometria, abertura do par, callbacks antigos, decodificação, cancelamento, reciclagem de linhas e ciclo de vida.
-- No emulador Android 13/API 33, um PNG 8192×512 limitado ao maior eixo de 512 pixels passou de 16 MiB para 64 KiB de bitmap decodificado. Isso não é uma medição da RAM total do aplicativo no Streambox.
-- APK assinado e painel musical em split com Settings verificados no emulador 1920×720. Capas HARDWARE também foram verificadas no APK real.
-- A redução total de RAM e as novas otimizações não foram medidas fisicamente no Streambox/Omoda.
-- `lintRelease` ainda apresenta erros preexistentes (10 erros e 69 avisos na verificação local). A CI mantém esse passo explicitamente não bloqueante e publica o relatório, sem novas supressões; falhas de testes ou de compilação impedem a release.
+- **1.0.5:** introduziu o atualizador, com cobertura de consulta, consentimento, cancelamento, integridade, compatibilidade e confirmação pelo instalador Android. Consulte o [histórico](CHANGELOG.md#105-streambox) para o escopo dessa versão.
+- **1.0.4:** a validação anterior à preparação dos metadados registrou 126 testes debug e `assembleDebug`; a cobertura incluía inicialização, grades por lado, o antigo EDGE no topo e gestos SWAP. Não houve validação física no Streambox/Omoda.
+- **1.0.3:** 78 testes debug e 78 release, incluindo APIs 28, 30 e 33. No emulador Android 13/API 33, um PNG 8192×512 limitado ao maior eixo de 512 pixels passou de 16 MiB para 64 KiB de bitmap decodificado. Isso não mede a RAM total do aplicativo no Streambox.
+- O APK assinado, o painel musical em split com Settings e capas HARDWARE foram verificados no emulador 1920×720 na **1.0.3**. Essa verificação histórica não valida as alterações posteriores nem comprova desempenho físico no veículo.
 
 ---
 
@@ -105,7 +104,7 @@ Para desenvolvimento, `keystore.properties` local continua suportado conforme `k
   <img alt="Android" src="https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Split screen" src="https://img.shields.io/badge/Split%20screen-Android%2012L%2B-1f6f8b">
   <img alt="Languages" src="https://img.shields.io/badge/Dil%20%2F%20Language-TR%20%7C%20EN-blue">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.5--streambox-informational">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.6--streambox-informational">
 </p>
 
 ---
@@ -123,7 +122,7 @@ Araç ekranlarında iki uygulamayı yan yana açmak normalde birkaç adım süre
 
 - Kayıtlı ikiliyi doğru tarafta ve sizin belirlediğiniz oranda açar.
 - Cihaz açılınca son kullanılan ikiliyi kendiliğinden başlatabilir.
-- Ekranın üstünde saat, hava durumu, hız ve yön gösteren şık bir bilgi şeridi sunar.
+- Saat, hava durumu, hız ve yön bilgilerini, EDGE modunda sol veya sağ kenarda kapalı başlayan dikey bir panelde gösterir; FLOATING modu da kullanılabilir.
 - Müzik uygulamasının yerine, arka planda çalan şarkıyı gösteren **Müzik paneli** açabilir.
 
 <p align="center">
@@ -173,11 +172,11 @@ Araç ekranlarında iki uygulamayı yan yana açmak normalde birkaç adım süre
 |---|---|
 | Android sürümü | En az Android 7.0. Tek dokunuşla bölünmüş ekran için **Android 12L (API 32) ve üzeri** önerilir. |
 | Ekran | Bölünmüş ekranı destekleyen geniş ekranlı cihazlar (araç kutusu, multimedya ekranı, tablet) |
-| Test edilen cihazlar | Orijinal sürüm: Carlinkit Tbox Ambient, Samsung Galaxy Tab S8 Ultra. Fork'un geçmiş doğrulaması (1.0.3): Android 13 emülatörü, 1920×720. 1.0.4 değişiklikleri yalnızca otomatik testlerle doğrulandı; fiziksel araç cihazında doğrulanmadı. |
+| Test edilen cihazlar | Orijinal sürüm: Carlinkit Tbox Ambient, Samsung Galaxy Tab S8 Ultra. Fork'un geçmiş doğrulaması (1.0.3): Android 13 emülatörü, 1920×720. 1.0.6 değişiklikleri yalnızca otomatik testlerle doğrulandı; fiziksel araç cihazında doğrulanmadı. |
 
 ### Kurulum
 
-1. Bu kodla birlikte verilen **DuoPanel Streambox Fix** APK dosyasını kurun; yukarıdaki yerel sürüm kurulum notlarını izleyin.
+1. Bu kodla birlikte verilen **DuoPanel Streambox Fix** APK dosyasını kurun; yukarıdaki kurulum notlarını izleyin.
 2. DuoPanel'i açın ve **Kurulum** düğmesine dokunun. Her adımın düğmesi doğrudan ilgili ayar ekranını açar.
 
 | İzin | Ne için |
@@ -250,7 +249,7 @@ On a car screen, opening two apps side by side normally takes several steps: Rec
 
 - Opens your saved pair on the right sides and at the ratio you chose.
 - Can start the last used pair automatically when the device boots.
-- Shows a clean info strip with time, weather, speed and heading on top of the screen.
+- Shows time, weather, speed and heading in a vertical EDGE sidebar, initially collapsed to a tab on the chosen left or right edge; FLOATING mode remains available.
 - Can show a **Music panel** with the song playing in the background, in place of the music app itself.
 
 <p align="center">
@@ -300,11 +299,11 @@ On a car screen, opening two apps side by side normally takes several steps: Rec
 |---|---|
 | Android version | Android 7.0 or later. **Android 12L (API 32) or later** is recommended for one-tap split screen. |
 | Screen | Wide-screen devices with split-screen support (car box, head unit, tablet) |
-| Tested on | Original upstream: Carlinkit Tbox Ambient and Samsung Galaxy Tab S8 Ultra. Historical fork validation (1.0.3): Android 13 emulator, 1920×720. The 1.0.4 changes have automated coverage only; not verified on physical automotive hardware. |
+| Tested on | Original upstream: Carlinkit Tbox Ambient and Samsung Galaxy Tab S8 Ultra. Historical fork validation (1.0.3): Android 13 emulator, 1920×720. The 1.0.6 changes have automated coverage only; not verified on physical automotive hardware. |
 
 ### Installation
 
-1. Install the **DuoPanel Streambox Fix** APK supplied with this source, following the local-build notes above.
+1. Install the **DuoPanel Streambox Fix** APK from this fork’s GitHub Releases, following the installation notes above.
 2. Open DuoPanel and tap **Setup**. Each step's button opens the exact settings screen.
 
 | Permission | What for |

@@ -117,6 +117,9 @@
     <string name="all_apps_left">Tüm uygulamalar — solu değiştir</string>
     <string name="all_apps_right">Tüm uygulamalar — sağı değiştir</string>
     <string name="strip_position">Bilgi şeridi konumu</string>
-    <string name="strip_edge">EDGE — üst kenara sabit</string>
+    <string name="strip_edge">SOL — açılır yan panel</string>
+    <string name="strip_edge_right">SAĞ — açılır yan panel</string>
+    <string name="strip_open">Bilgi panelini aç</string>
+    <string name="strip_close">Bilgi panelini kapat</string>
     <string name="strip_floating">FLOATING — sürüklenebilir, konumu hatırlar</string>
 </resources>

@@ -562,6 +562,13 @@
                     android:text="@string/strip_edge"
                     android:textColor="?attr/dpText" />
                 <RadioButton
+                    android:id="@+id/strip_edge_right"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/strip_edge_right"
+                    android:textColor="?attr/dpText" />
+                <RadioButton
                     android:id="@+id/strip_floating"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

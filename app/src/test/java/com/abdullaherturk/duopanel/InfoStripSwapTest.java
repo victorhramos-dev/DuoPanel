@@ -86,6 +86,7 @@ public class InfoStripSwapTest {
         ReflectionHelpers.setField(overlay, "hasWx", true);
         overlayController.startCommand(0, 1);
         overlay.onSplitChanged(true);
+        openDrawer();
         layoutStrip();
         shadowOf(Looper.getMainLooper()).idle();
     }
@@ -102,6 +103,11 @@ public class InfoStripSwapTest {
     }
 
     private View strip() { return ReflectionHelpers.getField(overlay, "strip"); }
+
+    private void openDrawer() {
+        EdgeDrawer drawer = ReflectionHelpers.getField(overlay, "edgeDrawer");
+        if (drawer != null) drawer.handle.performClick();
+    }
     private View button() { return strip().findViewById(R.id.btn_swap); }
     private void layoutStrip() {
         View strip = strip();
@@ -118,6 +124,7 @@ public class InfoStripSwapTest {
     private void rebuild() {
         OverlayService.refresh(context);
         overlay.onSplitChanged(true);
+        openDrawer();
         layoutStrip();
     }
     private void advance(long millis) {
@@ -312,15 +319,23 @@ public class InfoStripSwapTest {
                 ViewGroup root = (ViewGroup) strip();
                 assertTrue(root.isMotionEventSplittingEnabled());
                 android.view.ViewParent parent = button().getParent();
-                while (!(parent instanceof android.widget.HorizontalScrollView)) {
+                while (!(parent instanceof android.widget.HorizontalScrollView)
+                        && !(parent instanceof android.widget.ScrollView)) {
                     parent = parent.getParent();
                     assertNotNull(parent);
                 }
-                android.widget.HorizontalScrollView scroll = (android.widget.HorizontalScrollView) parent;
+                ViewGroup scroll = (ViewGroup) parent;
                 // fullScroll otherwise starts an animation: with the PAUSED looper the
                 // button is still clipped when the root receives the initial DOWN.
-                scroll.setSmoothScrollingEnabled(false);
-                assertTrue(scroll.fullScroll(View.FOCUS_RIGHT));
+                if (scroll instanceof android.widget.HorizontalScrollView) {
+                    android.widget.HorizontalScrollView horizontal = (android.widget.HorizontalScrollView) scroll;
+                    horizontal.setSmoothScrollingEnabled(false);
+                    assertTrue(horizontal.fullScroll(View.FOCUS_RIGHT));
+                } else {
+                    android.widget.ScrollView vertical = (android.widget.ScrollView) scroll;
+                    vertical.setSmoothScrollingEnabled(false);
+                    vertical.fullScroll(View.FOCUS_UP);
+                }
                 Rect swap = new Rect(), sibling = new Rect();
                 button().getDrawingRect(swap);
                 root.offsetDescendantRectToMyCoords(button(), swap);

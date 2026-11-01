@@ -23,6 +23,24 @@ public class Prefs {
         sp(c).edit().putString("side" + i, pkg).putString("hist" + i, join(h)).apply();
     }
 
+    /** Picker replacement preserves spatial width, not the destination pair's older ratio. */
+    public static void replaceSideKeepingRatio(Context c, int side, String pkg) {
+        if ((side != LEFT && side != RIGHT) || pkg == null) return;
+        SharedPreferences prefs = sp(c);
+        String left = prefs.getString("side" + LEFT, null);
+        String right = prefs.getString("side" + RIGHT, null);
+        int requested = left == null || right == null ? 50 : ratio(c, left, right);
+        List<String> h = history(c, side);
+        h.remove(pkg);
+        h.add(0, pkg);
+        while (h.size() > 10) h.remove(h.size() - 1);
+        if (side == LEFT) left = pkg; else right = pkg;
+        SharedPreferences.Editor edit = prefs.edit()
+                .putString("side" + side, pkg).putString("hist" + side, join(h));
+        if (left != null && right != null) edit.putInt("ratio_" + left + "|" + right, requested);
+        edit.apply();
+    }
+
     public static List<String> history(Context c, int i) { return split(sp(c).getString("hist" + i, "")); }
 
     public static void removeHistory(Context c, int i, String pkg) {
@@ -169,6 +187,10 @@ public class Prefs {
     /** Edge is the default, including upgrades with saved floating coordinates. */
     public static boolean stripEdge(Context c) { return get(c, "stripEdge", true); }
     public static void setStripEdge(Context c, boolean edge) { set(c, "stripEdge", edge); }
+
+    /** Physical drawer edge; existing EDGE installs open on the left. */
+    public static boolean stripRight(Context c) { return get(c, "stripRight", false); }
+    public static void setStripRight(Context c, boolean right) { set(c, "stripRight", right); }
     public static int stripX(Context c) { return sp(c).getInt("sx", -1); }
     public static int stripY(Context c) { return sp(c).getInt("sy", -1); }
     public static void setStrip(Context c, int x, int y) { sp(c).edit().putInt("sx", x).putInt("sy", y).apply(); }

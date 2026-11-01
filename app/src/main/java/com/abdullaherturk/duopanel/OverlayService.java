@@ -95,6 +95,75 @@ public class OverlayService extends Service implements SplitController.Listener 
         else start(c);
     }
 
+    private EdgeDrawer edgeDrawer;
+    private boolean stripActive;
+
+    /** Selection completes before this is called, so app-grid touches are never swallowed. */
+    public static void collapseDrawer() {
+        if (inst != null && inst.edgeDrawer != null) inst.edgeDrawer.collapse();
+    }
+
+    private boolean infoVisible() {
+        return strip != null && strip.getVisibility() == View.VISIBLE;
+    }
+
+    private void syncStripWork() {
+        h.removeCallbacks(tick);
+        setWeatherEnabled(infoVisible());
+        if (infoVisible()) startSensors(); else stopSensors();
+        if (infoVisible() || (!Prefs.strip(this) && Prefs.dividerSwap(this))) h.post(tick);
+    }
+
+    private final Object weatherLock = new Object();
+    private final List<HttpURLConnection> weatherConnections = new ArrayList<HttpURLConnection>();
+    private int weatherEpoch;
+    private boolean weatherEnabled;
+
+    private void setWeatherEnabled(boolean enabled) {
+        List<HttpURLConnection> canceled = new ArrayList<HttpURLConnection>();
+        synchronized (weatherLock) {
+            weatherEnabled = enabled;
+            if (!enabled) {
+                weatherEpoch++;
+                canceled.addAll(weatherConnections);
+                weatherConnections.clear();
+                if (!canceled.isEmpty()) { lastWx = 0; lastIpWx = 0; }
+            }
+        }
+        for (HttpURLConnection connection : canceled) connection.disconnect();
+    }
+
+    private int weatherToken() {
+        synchronized (weatherLock) { return weatherEnabled ? weatherEpoch : -1; }
+    }
+
+    private boolean weatherCurrent(int token) {
+        synchronized (weatherLock) { return weatherEnabled && token == weatherEpoch; }
+    }
+
+    private boolean trackWeather(HttpURLConnection connection, int token) {
+        synchronized (weatherLock) {
+            if (!weatherEnabled || token != weatherEpoch) return false;
+            weatherConnections.add(connection);
+            return true;
+        }
+    }
+
+    private void finishWeather(HttpURLConnection connection) {
+        if (connection == null) return;
+        synchronized (weatherLock) { weatherConnections.remove(connection); }
+        connection.disconnect();
+    }
+
+    private void drawerChanged() {
+        if (!infoVisible()) {
+            if (stripSwapTouch != null) stripSwapTouch.cancel();
+            dismissPopup();
+            removeStripMenu();
+        }
+        syncStripWork();
+    }
+
     @Override public IBinder onBind(Intent i) { return null; }
 
     @Override
@@ -197,24 +266,41 @@ public class OverlayService extends Service implements SplitController.Listener 
         try { wm.addView(b, lp); divBtn = b; divKey = key; } catch (Exception e) { SplitLog.add("divider button failed: " + e); }
     }
 
-    @Override
+@Override
     public void onSplitChanged(boolean active) {
+        stripActive = active;
         if (!active && stripSwapTouch != null) stripSwapTouch.cancel();
         if (bubble != null) bubble.setVisibility(active ? View.GONE : View.VISIBLE);
-        if (strip != null) strip.setVisibility(active ? View.VISIBLE : View.GONE);
-        if (active && strip != null) startSensors(); else stopSensors();
-        if (!active) dismissPopup();
+        if (edgeDrawer != null) edgeDrawer.setActive(active);
+        else if (strip != null) strip.setVisibility(active ? View.VISIBLE : View.GONE);
+        if (!active) { dismissPopup(); removeStripMenu(); }
+        syncStripWork();
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
+    private void configureSafeWindow(WindowManager.LayoutParams lp) {
+        lp.gravity = Gravity.TOP | Gravity.LEFT;
+        lp.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
+        if (Build.VERSION.SDK_INT >= 30) {
+            lp.setFitInsetsTypes(0);
+            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        } else if (Build.VERSION.SDK_INT >= 28) {
+            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+    }
+
     private void removeAll() {
+        h.removeCallbacks(tick);
+        stopSensors();
+        setWeatherEnabled(false);
         if (stripSwapTouch != null) {
             stripSwapTouch.dispose();
             stripSwapTouch = null;
         }
         dismissPopup();
-        if (strip != null) { try { wm.removeView(strip); } catch (Exception e) { } strip = null; }
+        if (edgeDrawer != null) { edgeDrawer.detach(); edgeDrawer = null; strip = null; }
+        else if (strip != null) { try { wm.removeView(strip); } catch (Exception e) { } strip = null; }
         stripLp = null;
         tvClock = tvDay = tvDate = tvTemp = tvSpeed = tvDir = null;
         ivLeft = ivRight = ivWeather = ivCompass = null;
@@ -231,6 +317,7 @@ public class OverlayService extends Service implements SplitController.Listener 
 
     private void rebuild() {
         removeAll();
+        stripActive = SplitController.isActive();
         tc = new ContextThemeWrapper(this, UiUtil.theme(this));
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return; }
         boolean s = Prefs.strip(this), b = Prefs.bubble(this);
@@ -244,9 +331,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         }
         if (s) addStrip();
         if (b) addBubble();
-        if (s && SplitController.isActive()) startSensors(); else stopSensors();
-        h.removeCallbacks(tick);
-        h.post(tick);
+        syncStripWork();
     }
 
     /** Observe the unsplit stream before ViewGroup routes each finger to a different child. */
@@ -258,9 +343,13 @@ public class OverlayService extends Service implements SplitController.Listener 
             super(context, attrs);
         }
 
+        private java.util.function.LongConsumer panelDown;
+
+        void setPanelDownListener(java.util.function.LongConsumer listener) { panelDown = listener; }
         @Override public boolean dispatchTouchEvent(MotionEvent event) {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
+                if (panelDown != null) panelDown.accept(event.getEventTime());
                 swapGesture = false;
                 canceledSwapGesture = false;
             }
@@ -290,9 +379,11 @@ public class OverlayService extends Service implements SplitController.Listener 
         }
     }
 
+
     // ---------- serit ----------
     private void addStrip() {
-        strip = LayoutInflater.from(tc).inflate(R.layout.strip, null);
+        final boolean edge = Prefs.stripEdge(this);
+        strip = LayoutInflater.from(tc).inflate(edge ? R.layout.strip_edge : R.layout.strip, null);
         tvClock = (TextView) strip.findViewById(R.id.tv_clock);
         tvDay = (TextView) strip.findViewById(R.id.tv_day);
         tvDate = (TextView) strip.findViewById(R.id.tv_date);
@@ -348,8 +439,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         swapBtn.setOnTouchListener(stripSwapTouch);
         swapBtn.setOnLongClickListener(stripSwapTouch);
         final DisplayMetrics dm = getResources().getDisplayMetrics();
-        final boolean edge = Prefs.stripEdge(this);
-        strip.setBackgroundResource(edge ? R.drawable.bg_strip_edge : R.drawable.bg_strip);
+        if (!edge) strip.setBackgroundResource(R.drawable.bg_strip);
         final int sw = Math.min(dm.widthPixels - dp(12), dp(1000));
         final WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 edge ? WindowManager.LayoutParams.MATCH_PARENT : sw, dp(56), TYPE_OVERLAY,
@@ -361,7 +451,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         lp.y = edge ? 0 : sy >= 0 ? Math.min(sy, Math.max(0, dm.heightPixels - dp(56))) : dp(6);
         stripLp = lp;
         // seridi surukle; yerinde 0.8 sn basili tutunca ortala
-        strip.setOnTouchListener(new View.OnTouchListener() {
+        if (!edge) strip.setOnTouchListener(new View.OnTouchListener() {
             float dx, dy; int ox, oy; boolean moved; long down;
             public boolean onTouch(View v, MotionEvent e) {
                 switch (e.getAction()) {
@@ -388,18 +478,30 @@ public class OverlayService extends Service implements SplitController.Listener 
                 return false;
             }
         });
-        try { wm.addView(strip, lp); } catch (Exception e) {
+        try {
+            if (edge) {
+                edgeDrawer = new EdgeDrawer(tc, wm, strip, TYPE_OVERLAY, Prefs.stripRight(this),
+                        () -> drawerChanged(), () -> popup != null || stripMenu != null);
+                stripLp = edgeDrawer.panelParams;
+                strip.findViewById(R.id.drawer_header).setOnLongClickListener(v -> { showStripMenu(); return true; });
+                strip.findViewById(R.id.drawer_header).setOnClickListener(v -> collapseDrawer());
+                edgeDrawer.attach();
+                edgeDrawer.setActive(stripActive);
+            } else wm.addView(strip, lp);
+        } catch (Exception e) {
             SplitLog.add("strip add failed: " + e);
             stripSwapTouch.dispose();
             stripSwapTouch = null;
+            if (edgeDrawer != null) { edgeDrawer.detach(); edgeDrawer = null; }
             strip = null;
             return;
         }
         updateIcons();
         lastClockMinute = Long.MIN_VALUE;
+        if (!edge) strip.setVisibility(stripActive ? View.VISIBLE : View.GONE);
+        setWeatherEnabled(infoVisible());
         tickOnce();
         if (hasWx) showWeather(wxTemp, wxCode, wxDay);
-        strip.setVisibility(SplitController.isActive() ? View.VISIBLE : View.GONE);
     }
 
     /** Physical holds use our own deadline, not Android's default long-click timeout. */
@@ -555,7 +657,7 @@ public class OverlayService extends Service implements SplitController.Listener 
     };
 
     private void tickOnce() {
-        if (strip == null || strip.getVisibility() != View.VISIBLE) return;
+        if (!infoVisible()) return;
         long t = System.currentTimeMillis();
         long minute = t / 60000;
         if (minute != lastClockMinute) {
@@ -705,11 +807,14 @@ public class OverlayService extends Service implements SplitController.Listener 
 
     /** GPS/ag konumu hic gelmezse hava durumu icin IP'den yaklasik konum */
     private void fetchWeatherByIp() {
+        final int token = weatherToken();
+        if (token < 0) return;
         new Thread(new Runnable() {
             public void run() {
                 HttpURLConnection c = null;
                 try {
                     c = (HttpURLConnection) new URL("https://ipapi.co/json/").openConnection();
+                    if (!trackWeather(c, token)) return;
                     c.setConnectTimeout(8000);
                     c.setReadTimeout(8000);
                     c.setRequestProperty("User-Agent", "DuoPanel");
@@ -721,11 +826,11 @@ public class OverlayService extends Service implements SplitController.Listener 
                     JSONObject o = new JSONObject(sb.toString());
                     final double lat = o.getDouble("latitude"), lon = o.getDouble("longitude");
                     SplitLog.add("weather by IP: " + o.optString("city"));
-                    h.post(new Runnable() { public void run() { fetchWeather(lat, lon); } });
+                    h.post(new Runnable() { public void run() { if (weatherCurrent(token)) fetchWeather(lat, lon); } });
                 } catch (Exception e) {
                     SplitLog.add("IP location failed: " + e);
                 } finally {
-                    if (c != null) c.disconnect();
+                    finishWeather(c);
                 }
             }
         }).start();
@@ -733,6 +838,8 @@ public class OverlayService extends Service implements SplitController.Listener 
 
     // ---------- hava ----------
     private void fetchWeather(final double lat, final double lon) {
+        final int token = weatherToken();
+        if (token < 0) return;
         new Thread(new Runnable() {
             public void run() {
                 HttpURLConnection c = null;
@@ -740,6 +847,7 @@ public class OverlayService extends Service implements SplitController.Listener 
                     URL u = new URL("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon
                             + "&current=temperature_2m,weather_code,is_day&timezone=auto");
                     c = (HttpURLConnection) u.openConnection();
+                    if (!trackWeather(c, token)) return;
                     c.setConnectTimeout(8000);
                     c.setReadTimeout(8000);
                     BufferedReader br = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
@@ -752,13 +860,13 @@ public class OverlayService extends Service implements SplitController.Listener 
                     final int code = cur.getInt("weather_code");
                     final boolean day = cur.optInt("is_day", 1) == 1;
                     h.post(new Runnable() {
-                        public void run() { showWeather(temp, code, day); }
+                        public void run() { if (weatherCurrent(token)) showWeather(temp, code, day); }
                     });
                 } catch (Exception e) {
                     SplitLog.add("weather failed: " + e);
-                    lastWx = System.currentTimeMillis() - 14 * 60 * 1000L; // 1 dk sonra tekrar dene
+                    if (weatherCurrent(token)) lastWx = System.currentTimeMillis() - 14 * 60 * 1000L; // 1 dk sonra tekrar dene
                 } finally {
-                    if (c != null) c.disconnect();
+                    finishWeather(c);
                 }
             }
         }).start();
@@ -870,7 +978,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         removeStripMenu();
         dismissPopup();
         android.widget.LinearLayout box = new android.widget.LinearLayout(tc);
-        box.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
         box.setBackgroundResource(R.drawable.bg_glass_r22);
         box.setPadding(dp(8), dp(8), dp(8), dp(8));
         TextView center = menuPill(R.string.strip_center, R.drawable.bg_pill_glass, UiUtil.attr(tc, R.attr.dpText));
@@ -913,22 +1021,28 @@ public class OverlayService extends Service implements SplitController.Listener 
         box.addView(hide, hp);
         box.setOnTouchListener(new View.OnTouchListener() {
             public boolean onTouch(View v, MotionEvent e) {
-                if (e.getAction() == MotionEvent.ACTION_OUTSIDE) { removeStripMenu(); return true; }
+                if (e.getAction() == MotionEvent.ACTION_OUTSIDE) {
+                    removeStripMenu();
+                    if (edgeDrawer != null) edgeDrawer.childOutside(e.getEventTime());
+                    return true;
+                }
                 return false;
             }
         });
-        DisplayMetrics dm = getResources().getDisplayMetrics();
+        android.graphics.Rect safe = EdgeDrawer.usableBounds(this, wm, strip);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, TYPE_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT);
         box.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        int mw = box.getMeasuredWidth();
+        int mw = Math.min(box.getMeasuredWidth(), safe.width());
+        int mh = Math.min(box.getMeasuredHeight(), safe.height());
+        lp.width = mw; lp.height = mh;
         lp.gravity = Gravity.TOP | Gravity.START;
-        lp.x = Math.max(dp(8), Math.min(dm.widthPixels - mw - dp(8), stripLp.x + strip.getWidth() / 2 - mw / 2));
-        if (stripLp.y < dm.heightPixels / 2) lp.y = stripLp.y + dp(64);
-        else { lp.gravity = Gravity.BOTTOM | Gravity.START; lp.y = dm.heightPixels - stripLp.y + dp(8); }
+        configureSafeWindow(lp);
+        lp.x = Math.max(safe.left, Math.min(safe.right - mw, stripLp.x));
+        lp.y = Math.max(safe.top, Math.min(safe.bottom - mh, stripLp.y + dp(48)));
         try { wm.addView(box, lp); stripMenu = box; } catch (Exception e) { SplitLog.add("strip menu failed: " + e); return; }
         h.postDelayed(hideStripMenu, 4000);
     }
@@ -999,9 +1113,12 @@ public class OverlayService extends Service implements SplitController.Listener 
         popupSide = -1;
     }
 
-    private void pick(int side, String pkg) {
-        Prefs.setSide(this, side, pkg);
+private void pick(int side, String pkg) {
+        Prefs.replaceSideKeepingRatio(this, side, pkg);
+        SplitService split = SplitService.get();
+        if (split != null) split.expectPickerReplacement(Prefs.side(this, Prefs.LEFT), Prefs.side(this, Prefs.RIGHT));
         dismissPopup();
+        collapseDrawer();
         updateIcons();
         SplitController.launchPair(this);
     }
@@ -1032,26 +1149,32 @@ public class OverlayService extends Service implements SplitController.Listener 
                     outsideSide = popupSide;
                     outsideAt = android.os.SystemClock.uptimeMillis();
                     dismissPopup();
+                    if (edgeDrawer != null) edgeDrawer.childOutside(e.getEventTime());
                     return true;
                 }
                 return false;
             }
         });
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        int w = Math.min(dp(560), dm.widthPixels - dp(16));
-        // Bound the scrolling grid on short landscape screens; history remains available above it.
-        gv.getLayoutParams().height = Math.max(dp(48), Math.min(dp(300), dm.heightPixels - dp(240)));
+        android.graphics.Rect safe = EdgeDrawer.usableBounds(this, wm, strip);
+        int w = Math.max(1, Math.min(dp(560), safe.width() - dp(16)));
+        int height = Math.max(1, Math.min(dp(460), safe.height() - dp(16)));
+        android.widget.LinearLayout.LayoutParams gridParams =
+                (android.widget.LinearLayout.LayoutParams) gv.getLayoutParams();
+        gridParams.height = Math.max(dp(48), height - dp(176));
+        gridParams.weight = 0;
+        gv.setLayoutParams(gridParams);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                w, WindowManager.LayoutParams.WRAP_CONTENT, TYPE_OVERLAY,
+                w, height, TYPE_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
         int stX = stripLp != null ? stripLp.x : 0, stY = stripLp != null ? stripLp.y : 0;
         int stW = strip != null ? strip.getWidth() : 0;
-        lp.x = Math.max(dp(8), Math.min(dm.widthPixels - w - dp(8), stX + stW / 2 - w / 2));
-        if (stY < dm.heightPixels / 2) lp.y = stY + dp(64);
-        else { lp.gravity = Gravity.BOTTOM | Gravity.START; lp.y = dm.heightPixels - stY + dp(8); }
+        // Absolute safe bounds include system bars/cutouts; use the same frame as the drawer.
+        configureSafeWindow(lp);
+        lp.x = Math.max(safe.left, Math.min(safe.right - w, stX + stW / 2 - w / 2));
+        lp.y = Math.max(safe.top, Math.min(safe.bottom - height, stY + (edgeDrawer != null ? 0 : dp(64))));
         try { wm.addView(popup, lp); } catch (Exception e) { SplitLog.add("popup failed: " + e); popup = null; popupSide = -1; }
     }
 
