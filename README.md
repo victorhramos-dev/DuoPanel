@@ -1,3 +1,47 @@
+# DuoPanel Streambox Fix — 1.0.1-streambox
+
+Compilação local não oficial baseada no [DuoPanel original](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-), commit `1b8b897e9114046d5ea19f5ead4f47d02693ced3`.
+Destinada ao problema de split inicial incompleto relatado no Faaftech Streambox Pro 8 GB conectado à multimídia do Omoda 5 HEV 2026.
+
+## Correção
+
+- Mede a proporção sobre a área útil da tela e exige cobertura completa das duas aplicações, não apenas uma porcentagem aparentemente correta.
+- Espera as dimensões estabilizarem e considera as múltiplas janelas de uma mesma aplicação sem confundi-las com apps diferentes ou janelas flutuantes.
+- Prefere a ação nativa do divisor; na ausência dela, usa um gesto de acessibilidade que ultrapassa o limiar de arraste e termina na proporção solicitada. A verificação começa após a conclusão do gesto.
+- Não salva posições intermediárias, canceladas ou ajustadas automaticamente pelo Android como se fossem uma escolha manual. Uma mudança manual posterior continua sendo lembrada.
+
+Os pontos de encaixe e os limites mínimos dos apps continuam sendo controlados pelo Android. A configuração solicitada é preservada mesmo quando o sistema arredonda a posição final.
+
+## Instalação desta compilação
+
+1. Instale o APK **DuoPanel Streambox Fix** fornecido com este código. O pacote é `com.abdullaherturk.duopanel.streamboxfix`, diferente do original: não o substitui nem importa suas preferências.
+2. Desative a acessibilidade e a abertura automática do DuoPanel original para evitar dois serviços controlando o divisor.
+3. Abra **DuoPanel Streambox Fix**, permita a sobreposição e ative **DuoPanel Streambox Fix — split screen** em Acessibilidade. Se o Android bloquear essa permissão, use **Informações do app → menu → Permitir configurações restritas**.
+4. Selecione os dois apps novamente, configure a proporção e abra o par com o veículo estacionado.
+
+A assinatura é local, não a chave do autor. Esta compilação não foi testada fisicamente no Streambox/Omoda; o smoke disponível usa Android 13 emulado, com tela de 1920×720.
+
+## Recompilação
+
+Use JDK 17, Android SDK Platform 34 e Build Tools 34.0.0, com `JAVA_HOME` e `ANDROID_HOME` definidos.
+Para um release assinado, crie `keystore.properties` na raiz com `storeFile`, `storePassword`, `keyAlias` e `keyPassword` referentes à sua chave local. Esse arquivo e a chave não pertencem ao controle de versão.
+
+```sh
+./gradlew testDebugUnitTest assembleRelease
+```
+
+O APK de release fica em `app/build/outputs/apk/release/`. Os testes cobrem cobertura parcial, orientação, barras do sistema, fragmentos de janelas, cancelamento, callbacks antigos e preservação da proporção.
+
+## Verificação desta compilação
+
+- `./gradlew testDebugUnitTest assembleRelease`: 34 casos passaram e o release assinado foi gerado. Há cobertura das APIs 28, 30 e 33.
+- APK não depurável instalado junto do DuoPanel original no emulador Android 13, 1920×720. Clock e Settings preencheram a área útil nas opções 30%, 50% e 70%, preservando os valores configurados apesar dos pontos de encaixe do Android.
+- O caminho de gesto também foi exercitado no APK real: uma proporção manual de 34% foi lembrada e depois restaurada de 66% para 34%, com verificação após a conclusão do gesto.
+- A assinatura APK v2 foi verificada com `apksigner`. A revisão escopada não deixou achados materiais pendentes.
+- `lintRelease` **não está limpo**: permanece com 10 erros em código/permissões preexistentes e 69 avisos. Nenhum desses erros foi suprimido para gerar o APK; a incompatibilidade nova de API encontrada durante a alteração foi corrigida.
+
+---
+
 <div align="center">
   <a href="https://buymeacoffee.com/abdullaherturk" target="_blank">
     <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important; width: 217px !important;">
@@ -19,7 +63,7 @@
   <img alt="Android" src="https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Split screen" src="https://img.shields.io/badge/Split%20screen-Android%2012L%2B-1f6f8b">
   <img alt="Languages" src="https://img.shields.io/badge/Dil%20%2F%20Language-TR%20%7C%20EN-blue">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0-informational">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.1--streambox-informational">
 </p>
 
 ---
@@ -87,17 +131,17 @@ Araç ekranlarında iki uygulamayı yan yana açmak normalde birkaç adım süre
 |---|---|
 | Android sürümü | En az Android 7.0. Tek dokunuşla bölünmüş ekran için **Android 12L (API 32) ve üzeri** önerilir. |
 | Ekran | Bölünmüş ekranı destekleyen geniş ekranlı cihazlar (araç kutusu, multimedya ekranı, tablet) |
-| Test edilen cihazlar | Carlinkit Tbox Ambient (Android 13, 1920×720), Samsung Galaxy Tab S8 Ultra |
+| Test edilen cihazlar | Orijinal sürüm: Carlinkit Tbox Ambient, Samsung Galaxy Tab S8 Ultra. Bu yerel sürüm: Android 13 emülatörü, 1920×720; fiziksel araç cihazında doğrulanmadı. |
 
 ### Kurulum
 
-1. [Releases](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-/releases) sayfasından son APK'yı indirip kurun.
+1. Bu kodla birlikte verilen **DuoPanel Streambox Fix** APK dosyasını kurun; yukarıdaki yerel sürüm kurulum notlarını izleyin.
 2. DuoPanel'i açın ve **Kurulum** düğmesine dokunun. Her adımın düğmesi doğrudan ilgili ayar ekranını açar.
 
 | İzin | Ne için |
 |---|---|
 | Diğer uygulamaların üzerinde göster | Bilgi şeridi, yüzen simge ve yer değiştirme düğmesi |
-| Erişilebilirlik hizmeti (**DuoPanel split screen**) | Bölünmüş ekranı başlatmak, ayracı ayarlamak, ekrandaki pencereleri algılamak |
+| Erişilebilirlik hizmeti (**DuoPanel Streambox Fix — bölünmüş ekran**) | Bölünmüş ekranı başlatmak, ayracı ayarlamak, ekrandaki pencereleri algılamak |
 | Kısıtlanmış ayarlara izin ver | Yalnızca Android erişilebilirlik hizmetini "kısıtlanmış ayar" diye engellerse: Uygulama bilgisi → sağ üstteki ⋮ → *Kısıtlanmış ayarlara izin ver* |
 | Konum (her zaman izin ver) | Hız, pusula ve hava durumu |
 | Pil kısıtlaması yok | Şeridin ve açılışta başlatmanın arka planda kapanmaması |
@@ -108,7 +152,7 @@ Araç ekranlarında iki uygulamayı yan yana açmak normalde birkaç adım süre
 Bazı cihazlar (özellikle araç kutuları) yeniden başlatıldıktan sonra erişilebilirlik hizmetini kapatır. Aşağıdaki komutu bilgisayardan bir kez çalıştırırsanız, DuoPanel hizmet kapandığında onu kendisi yeniden açar:
 
 ```bash
-adb shell pm grant com.abdullaherturk.duopanel android.permission.WRITE_SECURE_SETTINGS
+adb shell pm grant com.abdullaherturk.duopanel.streamboxfix android.permission.WRITE_SECURE_SETTINGS
 ```
 
 Zorunlu değildir. Bu izin olmadan da her şey çalışır, yalnızca hizmet kapanırsa elle açmanız gerekir.
@@ -214,17 +258,17 @@ On a car screen, opening two apps side by side normally takes several steps: Rec
 |---|---|
 | Android version | Android 7.0 or later. **Android 12L (API 32) or later** is recommended for one-tap split screen. |
 | Screen | Wide-screen devices with split-screen support (car box, head unit, tablet) |
-| Tested on | Carlinkit Tbox Ambient (Android 13, 1920×720), Samsung Galaxy Tab S8 Ultra |
+| Tested on | Original upstream: Carlinkit Tbox Ambient and Samsung Galaxy Tab S8 Ultra. This local build: Android 13 emulator, 1920×720; not verified on physical automotive hardware. |
 
 ### Installation
 
-1. Download and install the latest APK from [Releases](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-/releases).
+1. Install the **DuoPanel Streambox Fix** APK supplied with this source, following the local-build notes above.
 2. Open DuoPanel and tap **Setup**. Each step's button opens the exact settings screen.
 
 | Permission | What for |
 |---|---|
 | Display over other apps | Info strip, floating bubble and swap button |
-| Accessibility service (**DuoPanel split screen**) | Starting split screen, setting the divider, detecting the windows on screen |
+| Accessibility service (**DuoPanel Streambox Fix — split screen**) | Starting split screen, setting the divider, detecting the windows on screen |
 | Allow restricted settings | Only if Android blocks the accessibility service as a "restricted setting": App info → ⋮ at the top right → *Allow restricted settings* |
 | Location (allow all the time) | Speed, compass and weather |
 | Unrestricted battery | Keeps the strip and the boot start alive in the background |
@@ -235,7 +279,7 @@ On a car screen, opening two apps side by side normally takes several steps: Rec
 Some devices (car boxes in particular) turn the accessibility service off after a reboot. If you run the command below once from a computer, DuoPanel turns the service back on by itself:
 
 ```bash
-adb shell pm grant com.abdullaherturk.duopanel android.permission.WRITE_SECURE_SETTINGS
+adb shell pm grant com.abdullaherturk.duopanel.streamboxfix android.permission.WRITE_SECURE_SETTINGS
 ```
 
 This is optional. Everything works without it; you just have to turn the service back on by hand if it gets switched off.

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DuoPanel</string>
-    <string name="a11y_label">DuoPanel split screen</string>
+    <string name="app_name">DuoPanel Streambox Fix</string>
+    <string name="a11y_label">DuoPanel Streambox Fix — split screen</string>
     <string name="a11y_desc">Lets DuoPanel start two apps side by side, find the Split screen button in Recents and detect the split state.</string>
     <string name="pick_both">Pick an app for both sides first</string>
     <string name="settings_missing">This settings screen was not found on this device</string>
@@ -37,7 +37,7 @@
     <string name="step_restricted">Allow restricted settings (if warned)</string>
     <string name="step_restricted_d">Only if the previous step showed a Restricted setting warning: this opens App info. Tap the three dots at the top right, choose Allow restricted settings, then go back to the previous step and turn the service on.</string>
     <string name="step_a11y">Accessibility service</string>
-    <string name="step_a11y_d">Needed to enter split screen. Find DuoPanel split screen in the list and turn it on. If a Restricted setting warning appears, tap OK and continue with the next step.</string>
+    <string name="step_a11y_d">Needed to enter split screen. Find DuoPanel Streambox Fix — split screen in the list and turn it on. Disable the original DuoPanel service if installed. If a Restricted setting warning appears, tap OK and continue with the next step.</string>
     <string name="step_location">Location</string>
     <string name="step_location_d">Needed for speed, compass and weather.</string>
     <string name="step_battery">Unrestricted battery</string>
@@ -81,10 +81,10 @@
     <string name="ratio_label">Left side width</string>
     <string name="set_maps_return">Return Google Maps to driving mode after navigation ends (3 s after the main map appears)</string>
     <string name="bubble_remove">Remove</string>
-    <string name="bubble_removed">Floating bubble removed. Turn it back on in DuoPanel > Floating bubble.</string>
+    <string name="bubble_removed">Floating bubble removed. Turn it back on in DuoPanel Streambox Fix > Floating bubble.</string>
     <string name="strip_center">Center</string>
     <string name="strip_hide">Hide</string>
-    <string name="strip_hidden">Info strip hidden. Turn it back on in DuoPanel > Show the info strip.</string>
+    <string name="strip_hidden">Info strip hidden. Turn it back on in DuoPanel Streambox Fix > Show the info strip.</string>
     <string name="music_panel">Music panel</string>
     <string name="music_queue">Up next</string>
     <string name="music_library">Library</string>
@@ -111,6 +111,6 @@
     <string name="music_repeat_unsupported">%1$s does not accept repeat changes from outside. Change repeat inside %1$s; the button here shows its current state. Long-press the cover to open the app.</string>
     <string name="music_unpin_ask">Remove \"%1$s\" from the tabs?</string>
     <string name="music_unpin_yes">Remove</string>
-    <string name="music_settings">DuoPanel settings</string>
+    <string name="music_settings">DuoPanel Streambox Fix settings</string>
     <string name="strip_settings">Settings</string>
 </resources>

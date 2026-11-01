@@ -16,7 +16,7 @@ import java.util.List;
 
 /** Kayitli ikililer icin ana ekran ve uzun basma kisayollari (API 25+ yansima ile) */
 public class Shortcuts {
-    public static final String ACTION = "com.abdullaherturk.duopanel.OPEN_PAIR";
+    public static final String ACTION = "com.abdullaherturk.duopanel.streamboxfix.OPEN_PAIR";
 
     public static String id(String l, String r) { return "pair_" + Integer.toHexString((l + "|" + r).hashCode()); }
 

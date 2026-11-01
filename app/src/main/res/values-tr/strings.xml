@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DuoPanel</string>
-    <string name="a11y_label">DuoPanel bölünmüş ekran</string>
+    <string name="app_name">DuoPanel Streambox Fix</string>
+    <string name="a11y_label">DuoPanel Streambox Fix — bölünmüş ekran</string>
     <string name="a11y_desc">DuoPanel\'in iki uygulamayı yan yana açmasını, Son uygulamalar\'daki Bölünmüş ekran düğmesini bulmasını ve bölünme durumunu algılamasını sağlar.</string>
     <string name="pick_both">Önce iki taraf için de uygulama seç</string>
     <string name="settings_missing">Bu ayar ekranı cihazda bulunamadı</string>
@@ -37,7 +37,7 @@
     <string name="step_restricted">Kısıtlanmış ayarlara izin ver (uyarı çıktıysa)</string>
     <string name="step_restricted_d">Sadece önceki adımda Kısıtlanmış ayar uyarısı çıktıysa: bu düğme Uygulama bilgisini açar. Sağ üstteki üç noktaya dokun, Kısıtlanmış ayarlara izin ver\'i seç, sonra önceki adıma dönüp hizmeti aç.</string>
     <string name="step_a11y">Erişilebilirlik hizmeti</string>
-    <string name="step_a11y_d">Bölünmüş ekrana girmek için gerekli. Listede DuoPanel bölünmüş ekran\'ı bul ve aç. Kısıtlanmış ayar uyarısı çıkarsa TAMAM\'a bas ve sonraki adıma geç.</string>
+    <string name="step_a11y_d">Bölünmüş ekrana girmek için gerekli. Listede DuoPanel Streambox Fix — bölünmüş ekran\'ı bul ve aç. Orijinal DuoPanel yüklüyse onun hizmetini kapat. Kısıtlanmış ayar uyarısı çıkarsa TAMAM\'a bas ve sonraki adıma geç.</string>
     <string name="step_location">Konum</string>
     <string name="step_location_d">Hız, pusula ve hava durumu için gerekli.</string>
     <string name="step_battery">Pil kısıtlaması yok</string>
@@ -81,10 +81,10 @@
     <string name="ratio_label">Sol taraf genişliği</string>
     <string name="set_maps_return">Navigasyon bitince Google Haritalar\'ı sürüş moduna döndür (ana harita göründükten 3 sn sonra)</string>
     <string name="bubble_remove">Kaldır</string>
-    <string name="bubble_removed">Yüzen simge kaldırıldı. DuoPanel > Yüzen simge ile tekrar açabilirsin.</string>
+    <string name="bubble_removed">Yüzen simge kaldırıldı. DuoPanel Streambox Fix > Yüzen simge ile tekrar açabilirsin.</string>
     <string name="strip_center">Ortala</string>
     <string name="strip_hide">Gizle</string>
-    <string name="strip_hidden">Bilgi şeridi gizlendi. DuoPanel > Bilgi şeridini göster ile tekrar açabilirsin.</string>
+    <string name="strip_hidden">Bilgi şeridi gizlendi. DuoPanel Streambox Fix > Bilgi şeridini göster ile tekrar açabilirsin.</string>
     <string name="music_panel">Müzik paneli</string>
     <string name="music_queue">Sıradakiler</string>
     <string name="music_library">Kitaplık</string>
@@ -111,6 +111,6 @@
     <string name="music_repeat_unsupported">%1$s dışarıdan tekrar ayarını kabul etmiyor. Tekrarı %1$s içinden değiştir, buradaki düğme o anki durumu gösterir. Uygulamayı açmak için kapağa basılı tut.</string>
     <string name="music_unpin_ask">\"%1$s\" sekmelerden kaldırılsın mı?</string>
     <string name="music_unpin_yes">Kaldır</string>
-    <string name="music_settings">DuoPanel ayarları</string>
+    <string name="music_settings">DuoPanel Streambox Fix ayarları</string>
     <string name="strip_settings">Ayarlar</string>
 </resources>

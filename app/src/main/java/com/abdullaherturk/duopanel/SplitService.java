@@ -1,6 +1,7 @@
 package com.abdullaherturk.duopanel;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.GestureDescription;
 import android.content.Intent;
 import android.graphics.Point;
 import android.graphics.Rect;
@@ -8,9 +9,14 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
+import android.view.ViewConfiguration;
+import android.view.WindowInsets;
+import android.view.WindowManager;
+import android.view.WindowMetrics;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -101,6 +107,10 @@ public class SplitService extends AccessibilityService {
 
     @Override
     public boolean onUnbind(Intent i) {
+        ratioToken++;
+        ratioArmed = false;
+        blockedAt = -1;
+        if (h != null) h.removeCallbacksAndMessages(null);
         if (inst == this) inst = null;
         SplitLog.add("accessibility disconnected");
         return super.onUnbind(i);
@@ -122,6 +132,11 @@ public class SplitService extends AccessibilityService {
         try {
             List<AccessibilityWindowInfo> ws = getWindows();
             if (ws == null) { SplitController.setDivider(null); return false; }
+            SplitGeometry geometry = splitGeometry(ws);
+            if (geometry != null) {
+                SplitController.setDivider(new Point(geometry.startX(), geometry.startY()));
+                return true;
+            }
             DisplayMetrics dm = getResources().getDisplayMetrics();
             long full = (long) dm.widthPixels * dm.heightPixels;
             Rect a = null, b = null;
@@ -199,27 +214,29 @@ public class SplitService extends AccessibilityService {
     }
 
     // ---------- elle ayarlanan orani hatirla ----------
-    private int seenRatio = -1;
+    private int seenRatio = -1, blockedAt = -1;
     private long seenAt, ratioOpAt;
-    private int blockedAt = -1;
     private long pendingSince;
-    /** Bu ikili icin oran en az bir kez uygulandi/denetlendi mi: oncesinde ayracin konumu (or. Tbox'in varsayilan %70'i) kaydedilmez */
+    /** Manual remembering starts only after movement away from the last automatic position. */
     private boolean ratioArmed;
 
     /** Ikili ekrandayken ayracin yerini izler; ikiliden cikinca son konumu o ikilinin orani olarak kaydeder */
     private void rememberRatio(boolean on) {
         long t = SystemClock.uptimeMillis();
-        boolean settled = ratioArmed && t - ratioOpAt > 4000 && SystemClock.elapsedRealtime() > busyUntil;
+        boolean settled = (ratioArmed || blockedAt >= 0) && t - ratioOpAt > 4000
+                && SystemClock.elapsedRealtime() > busyUntil;
         if (on) {
             if (settled && t - seenAt > 1000) {
-                int p = leftPercent();
-                if (p >= 10 && p <= 90) {
+                SplitGeometry geometry = splitGeometry();
+                int p = geometry != null && geometry.coversScreen() ? geometry.percent() : -1;
+                if (p >= 10 && p <= 90 && (ratioArmed || Math.abs(p - blockedAt) >= 3)) {
+                    ratioArmed = true;
+                    blockedAt = -1;
                     // ayrac elle cekilip birakildiysa (iki okuma ayni) hemen kaydet ve seridi guncelle
-                    if (blockedAt >= 0 && Math.abs(p - blockedAt) >= 3) blockedAt = -1;   // kullanici ayraci oynatti
                     if (p != seenRatio) pendingSince = t;   // ayrac yeni bir yerde: sayaci yeniden baslat
                     // ikili bozulurken (or. Haritalar ikiliden cikarken) ayrac da kayar: ancak 5 sn ayni yerde
                     // kalan ve ikili hala ekrandayken okunan konum "elle ayar" sayilir
-                    if (p == seenRatio && blockedAt < 0 && !floatStuck && t - pendingSince >= 5000) {
+                    if (p == seenRatio && !floatStuck && t - pendingSince >= 5000) {
                         String l = Prefs.side(this, Prefs.LEFT), r = Prefs.side(this, Prefs.RIGHT);
                         if (l != null && r != null && Math.abs(Prefs.ratio(this, l, r) - p) >= 3) {
                             Prefs.setRatio(this, l, r, p);
@@ -228,6 +245,8 @@ public class SplitService extends AccessibilityService {
                         }
                     }
                     seenRatio = p;
+                } else {
+                    seenRatio = -1;
                 }
                 seenAt = t;
             }
@@ -257,12 +276,15 @@ public class SplitService extends AccessibilityService {
         pairKeep = keep;
         if (h == null) h = new Handler(getMainLooper());
         ratioOpAt = SystemClock.uptimeMillis() + 20000;   // ikili acilirken (denemeler dahil) orani izleme
-        blockedAt = -1;
         ratioArmed = false;
+        blockedAt = -1;
         seenRatio = -1;
         long now = SystemClock.elapsedRealtime();
         if (now < busyUntil) { SplitLog.add("busy, ignored"); return; }
         busyUntil = now + 25000;
+        ratioToken++;
+        if (pendingRatio != null) h.removeCallbacks(pendingRatio);
+        pendingRatio = null;
         attempt = 1;
         floatFixed = false;
         floatStuck = false;
@@ -409,29 +431,10 @@ public class SplitService extends AccessibilityService {
 
     /** Bolunmus ekrandaki [sol/ust, sag/alt] paketler; bolunme yoksa null */
     private String[] currentPair() {
-        try {
-            List<AccessibilityWindowInfo> ws = getWindows();
-            if (ws == null) return null;
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            long full = (long) dm.widthPixels * dm.heightPixels;
-            List<Rect> rs = new java.util.ArrayList<Rect>();
-            List<String> ps = new java.util.ArrayList<String>();
-            for (AccessibilityWindowInfo w : ws) {
-                if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
-                Rect r = new Rect();
-                w.getBoundsInScreen(r);
-                long ar = (long) r.width() * r.height();
-                if (ar < full * 0.06 || ar >= full * 0.8 || !pane(r, dm)) continue;
-                AccessibilityNodeInfo root = w.getRoot();
-                if (root == null || root.getPackageName() == null) continue;
-                rs.add(r);
-                ps.add(root.getPackageName().toString());
-            }
-            if (rs.size() < 2) return null;
-            Rect r0 = rs.get(0), r1 = rs.get(1);
-            boolean firstIsLeft = r0.left < r1.left || (r0.left == r1.left && r0.top <= r1.top);
-            return firstIsLeft ? new String[]{ps.get(0), ps.get(1)} : new String[]{ps.get(1), ps.get(0)};
-        } catch (Exception e) { return null; }
+        SplitGeometry geometry = splitGeometry();
+        if (geometry == null) return null;
+        String left = Prefs.side(this, Prefs.LEFT), right = Prefs.side(this, Prefs.RIGHT);
+        return geometry.firstIsLeft ? new String[]{left, right} : new String[]{right, left};
     }
 
     private void legacy(final String left, final String right) {
@@ -466,6 +469,13 @@ public class SplitService extends AccessibilityService {
         if (h == null) h = new Handler(getMainLooper());
         long now = SystemClock.elapsedRealtime();
         if (now < busyUntil) { SplitLog.add("busy, ignored"); return; }
+        ratioToken++;
+        if (pendingRatio != null) h.removeCallbacks(pendingRatio);
+        pendingRatio = null;
+        ratioArmed = false;
+        blockedAt = -1;
+        seenRatio = -1;
+        ratioOpAt = SystemClock.uptimeMillis();
         busyUntil = now + 25000;
         final String before = leftPackage();
         final Rect div = dividerBounds();
@@ -658,16 +668,24 @@ public class SplitService extends AccessibilityService {
 
     private void scheduleRatio(final String left, final String right, long delay) {
         if (left == null || right == null) return;
-        // oran uygulanana kadar ayracin varsayilan konumu (or. Tbox %70) "elle ayar" sanilmasin
+        if (h == null) h = new Handler(getMainLooper());
+        if (pendingRatio != null) h.removeCallbacks(pendingRatio);
+        final int token = ++ratioToken;
+        ratioArmed = false;
+        blockedAt = -1;
+        delay = Math.max(delay, busyUntil - SystemClock.elapsedRealtime() + 1);
         ratioOpAt = SystemClock.uptimeMillis() + delay;
         seenRatio = -1;
-        h.postDelayed(new Runnable() {
-            public void run() { applyWhenStable(left, right, -2, 0); }
-        }, delay);
+        pendingRatio = new Runnable() {
+            public void run() {
+                pendingRatio = null;
+                applyWhenStable(left, right, null, 0, token);
+            }
+        };
+        h.postDelayed(pendingRatio, delay);
     }
 
     private int ratioToken;
-    private int ratioBefore = -1;
     private long mapsQuietUntil;
 
     /** Ikili acilirken / oran ya da yer degisirken Haritalar gecici olarak farkli gorunebilir: 10 sn izleme */
@@ -681,14 +699,9 @@ public class SplitService extends AccessibilityService {
 
     /** Seritteki dugme icin: son dokunustan 1 sn sonra uygula (art arda dokunuslar birikir) */
     public void applyRatioDebounced(final String left, final String right) {
-        if (h == null) h = new Handler(getMainLooper());
-        if (pendingRatio != null) h.removeCallbacks(pendingRatio);
-        ratioToken++;
-        pendingRatio = new Runnable() { public void run() { pendingRatio = null; applyRatio(left, right); } };
-        h.postDelayed(pendingRatio, 1000);
+        scheduleRatio(left, right, 1000);
     }
 
-    /** Ikili ekrandaysa sol/ust tarafi kayitli orana getirir: once surukleme, olmazsa ayrac komutu */
     /**
      * Yer degistirmeden sonra ayraci SURUKLEME (Tbox'ta ikiliyi bozuyor / sistemi kilitliyordu):
      * ayrac yerinde kalir, o anki konum yeni dizilisin orani olarak kaydedilir.
@@ -697,80 +710,149 @@ public class SplitService extends AccessibilityService {
         h.postDelayed(new Runnable() {
             public void run() {
                 String l = Prefs.side(SplitService.this, Prefs.LEFT), r = Prefs.side(SplitService.this, Prefs.RIGHT);
-                int p = leftPercent();
-                if (!floatStuck && l != null && r != null && p >= 10 && p <= 90) {
+                SplitGeometry geometry = splitGeometry();
+                int p = geometry == null ? -1 : geometry.percent();
+                ratioArmed = geometry != null && geometry.coversScreen() && !floatStuck;
+                if (ratioArmed && l != null && r != null && p >= 10 && p <= 90) {
                     Prefs.setRatio(SplitService.this, l, r, p);
                     SplitLog.add("ratio after swap kept: " + p + "%");
                     OverlayService.refreshRatio();
                 }
-                ratioArmed = true;
             }
         }, 1500);
     }
 
-    /** Ayrac yerine oturmadan (acilis / yer degistirme animasyonu suruyorken) surukleme yapma: iki olcum ayni olana kadar bekle */
-    private void applyWhenStable(final String left, final String right, final int prev, final int n) {
-        int cur = leftPercent();
-        if (n < 4 && (cur < 0 || prev == -2 || Math.abs(cur - prev) > 1)) {
-            final int seen = cur;   // 0.7 sn sonra tekrar olc ve bununla karsilastir
+    /** Wait for the actual window edges, not a percentage of a possibly truncated area. */
+    private void applyWhenStable(final String left, final String right,
+            final SplitGeometry previous, final int n, final int token) {
+        if (token != ratioToken || !selectedPair(left, right)) return;
+        final SplitGeometry geometry = splitGeometry();
+        if (geometry == null || !geometry.sameBounds(previous)) {
+            if (n >= 4) {
+                SplitLog.add("ratio stopped: window bounds did not settle");
+                return;
+            }
             h.postDelayed(new Runnable() {
-                public void run() { applyWhenStable(left, right, seen, n + 1); }
+                public void run() { applyWhenStable(left, right, geometry, n + 1, token); }
             }, 700);
             return;
         }
         applyRatio(left, right);
     }
 
-    public void applyRatio(final String left, final String right) {
-        if (h == null) h = new Handler(getMainLooper());
-        final int target = Prefs.ratio(this, left, right);
-        // mesgulken gelen ikinci istek, suren islemin kontrolunu (token) iptal etmesin
-        if (SystemClock.elapsedRealtime() < busyUntil || !SplitController.isActive()) { SplitLog.add("ratio skipped (busy or no pair)"); return; }
-        if (floatStuck) { SplitLog.add("ratio skipped (floating window)"); return; }
-        final int token = ++ratioToken;
-        int cur = leftPercent();
-        if (cur >= 0) ratioArmed = true;
-        if (cur < 0 || Math.abs(cur - target) < 5) return;
-        SplitLog.add("ratio: " + cur + "% -> " + target + "%");
-        quietMaps();
-        ratioBefore = cur;
-        if (dragRatio(step(cur, target))) { verifyRatio(target, 1, token); return; }
-        AccessibilityNodeInfo root = dividerRoot();
-        if (root != null) {
-            Object[] hit = findRatioAction(root, target, 0);
-            if (hit != null && ((AccessibilityNodeInfo) hit[0]).performAction((Integer) hit[1])) {
-                SplitLog.add("ratio action: " + hit[2]);
-                verifyRatio(target, 2, token);
-            }
-        }
+    private boolean selectedPair(String left, String right) {
+        return left != null && right != null && left.equals(Prefs.side(this, Prefs.LEFT))
+                && right.equals(Prefs.side(this, Prefs.RIGHT));
     }
 
-    /** tries: kalan surukleme hakki; token degistiyse (yeni istek geldi) dur */
-    private void verifyRatio(final int target, final int tries, final int token) { verifyRatio(target, tries, token, false, 2800); }
+    public void applyRatio(final String left, final String right) {
+        if (h == null) h = new Handler(getMainLooper());
+        if (SystemClock.elapsedRealtime() < busyUntil || !SplitController.isActive()
+                || !selectedPair(left, right)) {
+            SplitLog.add("ratio skipped (busy or no pair)");
+            return;
+        }
+        if (floatStuck) { SplitLog.add("ratio skipped (floating window)"); return; }
+        SplitGeometry geometry = splitGeometry();
+        if (geometry == null) return;
+        ratioArmed = false;
+        blockedAt = -1;
+        seenRatio = -1;
+        new RatioRequest(left, right).start(geometry);
+    }
 
-    private void verifyRatio(final int target, final int tries, final int token, final boolean rechecked, long delay) {
-        h.postDelayed(new Runnable() {
-            public void run() {
-                if (token != ratioToken) return;
-                int now = leftPercent();
-                SplitLog.add("ratio now: " + now + "%");
-                if (now < 0 || !SplitController.isActive()) { SplitLog.add("ratio stopped: pair not on screen"); return; }
-                if (now >= 85 || now <= 15) { SplitLog.add("ratio stopped: divider at the edge"); busyUntil = 0; return; }
-                if (!rechecked && now >= 0 && ratioBefore >= 0 && Math.abs(now - ratioBefore) < 3 && Math.abs(now - target) >= 5) {
-                    // yavas cihazda (Tbox) ayrac gec oturabilir: "kipirdamadi" demeden once biraz daha bekle
-                    verifyRatio(target, tries, token, true, 2000);
-                    return;
-                }
-                if (now >= 0 && ratioBefore >= 0 && Math.abs(now - ratioBefore) < 3 && Math.abs(now - target) >= 5) {
-                    // ayrac hic kipirdamadi: sistem/uygulama bu genisligi kabul etmiyor (uygulamanin en kucuk pencere genisligi)
-                    SplitLog.add("ratio blocked: divider did not move (app minimum width?)");
-                    blockedAt = now;   // ayrac yerinde kaldi: bu konum "elle ayar" sayilip kayitli oranin ustune yazilmasin
-                    return;
-                }
-                ratioBefore = now;
-                if (tries > 0 && now >= 0 && Math.abs(now - target) >= 5 && dragRatio(step(now, target))) verifyRatio(target, tries - 1, token);
+    /** A resize owns its callbacks; a new pair, preference or request invalidates it. */
+    private final class RatioRequest {
+        final String left, right;
+        final int target, token;
+
+        RatioRequest(String left, String right) {
+            this.left = left;
+            this.right = right;
+            target = Prefs.ratio(SplitService.this, left, right);
+            token = ++ratioToken;
+        }
+
+        boolean current() {
+            if (token != ratioToken) return false;
+            if (!selectedPair(left, right) || !SplitController.isActive()
+                    || target != Prefs.ratio(SplitService.this, left, right)) {
+                finish(false, "request changed");
+                return false;
             }
-        }, 2800);
+            return true;
+        }
+
+        void start(SplitGeometry geometry) {
+            if (geometry.coversScreen() && Math.abs(geometry.percent() - target) < 5) {
+                finish(true, "already fills screen");
+                return;
+            }
+            SplitLog.add("ratio: " + geometry.percent() + "% -> " + target
+                    + "%, fills screen=" + geometry.coversScreen());
+            quietMaps();
+            AccessibilityNodeInfo root = dividerRoot();
+            Object[] action = findRatioAction(root, target, 0);
+            if (action != null && ((AccessibilityNodeInfo) action[0]).performAction((Integer) action[1])) {
+                busyUntil = SystemClock.elapsedRealtime() + 4500;
+                SplitLog.add("ratio action: " + action[2]);
+                verify(null, null, 0, 2);
+                return;
+            }
+            drag(geometry, 1);
+        }
+
+        void drag(final SplitGeometry geometry, final int remaining) {
+            if (!current()) return;
+            boolean accepted = dragRatio(step(geometry.percent(), target), geometry, new GestureResultCallback() {
+                @Override public void onCompleted(GestureDescription gesture) {
+                    if (current()) verify(geometry, null, 0, remaining);
+                }
+                @Override public void onCancelled(GestureDescription gesture) {
+                    finish(false, "gesture cancelled");
+                }
+            });
+            if (!accepted) finish(false, "gesture rejected");
+        }
+
+        void verify(final SplitGeometry before, final SplitGeometry previous,
+                final int checks, final int remaining) {
+            h.postDelayed(new Runnable() {
+                public void run() {
+                    if (!current()) return;
+                    SplitGeometry geometry = splitGeometry();
+                    if (geometry == null) { finish(false, "pair no longer visible"); return; }
+                    if (!geometry.sameBounds(previous)) {
+                        if (checks >= 4) { finish(false, "window bounds did not settle"); return; }
+                        verify(before, geometry, checks + 1, remaining);
+                        return;
+                    }
+                    SplitLog.add("ratio measured: " + geometry.percent() + "%, fills screen="
+                            + geometry.coversScreen() + ", " + geometry.first.toShortString()
+                            + " | " + geometry.second.toShortString() + ", frame=" + geometry.frame.toShortString());
+                    if (geometry.coversScreen() && Math.abs(geometry.percent() - target) < 5) {
+                        finish(true, "bounds and ratio verified");
+                    } else if (geometry.coversScreen() && geometry.sameBounds(before)) {
+                        finish(false, "divider did not move (app minimum width?)");
+                    } else if (remaining > 0) {
+                        drag(geometry, remaining - 1);
+                    } else {
+                        finish(false, "bounds or ratio still incomplete");
+                    }
+                }
+            }, 700);
+        }
+
+        void finish(boolean success, String reason) {
+            if (token != ratioToken) return;
+            ratioToken++;
+            blockedAt = leftPercent();
+            ratioArmed = false;
+            ratioOpAt = SystemClock.uptimeMillis();
+            seenRatio = -1;
+            busyUntil = 0;
+            SplitLog.add("ratio " + (success ? "verified: " : "stopped: ") + reason);
+        }
     }
 
     /** Ayracin erisilebilirlik eylemlerinde "sol/ust ... yuzde N" olani bulur */
@@ -793,30 +875,62 @@ public class SplitService extends AccessibilityService {
         return null;
     }
 
-    /** Iki buyuk uygulama penceresi: [sol/ust, sag/alt] */
-    private Rect[] pairRects() {
-        try {
-            List<AccessibilityWindowInfo> ws = getWindows();
-            if (ws == null) return null;
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            long full = (long) dm.widthPixels * dm.heightPixels;
-            List<Rect> rs = new java.util.ArrayList<Rect>();
-            for (AccessibilityWindowInfo w : ws) {
-                if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
-                Rect r = new Rect();
-                w.getBoundsInScreen(r);
-                long ar = (long) r.width() * r.height();
-                if (ar < full * 0.06 || ar >= full * 0.8 || !pane(r, dm)) continue;
-                rs.add(r);
-            }
-            if (rs.size() < 2) return null;
-            Rect a = rs.get(0), b = rs.get(1);
-            boolean aFirst = a.left < b.left || (a.left == b.left && a.top <= b.top);
-            return aFirst ? new Rect[]{a, b} : new Rect[]{b, a};
-        } catch (Exception e) { return null; }
+    /** Selected app panes and their divider, captured from one accessibility-window list. */
+    private SplitGeometry splitGeometry() {
+        try { return splitGeometry(getWindows()); }
+        catch (Exception e) { return null; }
     }
 
-    private static boolean sideBySide(Rect[] p) { return p[1].left >= p[0].right - 60; }
+    private SplitGeometry splitGeometry(List<AccessibilityWindowInfo> windows) {
+        String left = Prefs.side(this, Prefs.LEFT), right = Prefs.side(this, Prefs.RIGHT);
+        if (windows == null || left == null || right == null) return null;
+        try {
+            List<Rect> leftWindows = new ArrayList<>(), rightWindows = new ArrayList<>();
+            Rect divider = null;
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            int outerLeft = Integer.MAX_VALUE, outerTop = Integer.MAX_VALUE;
+            for (AccessibilityWindowInfo window : windows) {
+                if (window.getType() == 5 && divider == null) {
+                    divider = new Rect();
+                    window.getBoundsInScreen(divider);
+                }
+                if (window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                AccessibilityNodeInfo root = window.getRoot();
+                if (root == null || root.getPackageName() == null) continue;
+                CharSequence pkg = root.getPackageName();
+                List<Rect> selected = left.contentEquals(pkg) ? leftWindows : right.contentEquals(pkg) ? rightWindows : null;
+                if (selected == null) continue;
+                Rect bounds = new Rect();
+                window.getBoundsInScreen(bounds);
+                if (bounds.isEmpty() || !pane(bounds, dm)) continue;
+                selected.add(bounds);
+                outerLeft = Math.min(outerLeft, bounds.left);
+                outerTop = Math.min(outerTop, bounds.top);
+            }
+            if (leftWindows.isEmpty() || rightWindows.isEmpty()) return null;
+            WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+            Rect frame = new Rect();
+            if (Build.VERSION.SDK_INT >= 30) {
+                WindowMetrics metrics = wm.getMaximumWindowMetrics();
+                frame.set(metrics.getBounds());
+                android.graphics.Insets insets = metrics.getWindowInsets().getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                frame.set(frame.left + insets.left, frame.top + insets.top,
+                        frame.right - insets.right, frame.bottom - insets.bottom);
+            } else {
+                wm.getDefaultDisplay().getRectSize(frame);
+                Point real = new Point();
+                wm.getDefaultDisplay().getRealSize(real);
+                int leftInset = real.x - frame.width();
+                int tolerance = Math.max(2, Math.round(4 * dm.density));
+                if (leftInset > 0 && Math.abs(outerLeft - leftInset) <= tolerance) frame.offset(leftInset, 0);
+                int statusId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                if (statusId != 0 && outerTop > 0 && outerTop <= getResources().getDimensionPixelSize(statusId))
+                    frame.top = outerTop;
+            }
+            return new SplitGeometry(frame, leftWindows, rightWindows, divider, dm.density);
+        } catch (Exception e) { return null; }
+    }
 
     private boolean floatFixed;
     /** pencere bolmesini doldurmuyor ve duzeltilemedi: ayraci surukleme, orani da kaydetme */
@@ -828,6 +942,12 @@ public class SplitService extends AccessibilityService {
      * "buyut" dugmesiyle tam ekrana alir. div != null: bolunmus ekranda, bolmesini doldurmayan pencere aranir.
      */
     private boolean fixFloating(String left, String right, Rect div) {
+        SplitGeometry geometry = splitGeometry();
+        if (geometry != null && geometry.isTiled()) {
+            // An aligned pair can occupy only part of the display. That is not evidence of freeform mode.
+            if (!geometry.coversScreen()) SplitLog.add("incomplete split bounds; keeping divider normalization enabled");
+            return false;
+        }
         try {
             List<AccessibilityWindowInfo> ws = getWindows();
             if (ws == null) return false;
@@ -841,6 +961,7 @@ public class SplitService extends AccessibilityService {
                 Rect r = new Rect();
                 w.getBoundsInScreen(r);
                 if (r.width() <= 0 || r.height() <= 0) continue;
+                if ((long) r.width() * r.height() < (long) sc.x * sc.y * 0.06) continue;
                 boolean floating;
                 if (div != null && div.height() >= div.width()) {
                     int slot = r.centerX() < div.centerX() ? div.centerX() : sc.x - div.centerX();
@@ -913,58 +1034,42 @@ public class SplitService extends AccessibilityService {
         return cur + (d > 0 ? 20 : -20);
     }
 
-    /** Sol (ya da ust) tarafin yuzdesi: once ayrac konumundan, yoksa pencerelerden; bolunme yoksa -1 */
+    /** Always relative to the usable display, never to the sum of two truncated panes. */
     private int leftPercent() {
-        android.graphics.Point s = screen();
-        Rect d = dividerWindow();
-        if (d != null) {
-            if (d.height() >= d.width()) return Math.round(d.centerX() * 100f / s.x);
-            return Math.round(d.centerY() * 100f / s.y);
-        }
-        Rect[] p = pairRects();
-        if (p == null) return -1;
-        if (sideBySide(p)) return Math.round(p[0].width() * 100f / (p[0].width() + p[1].width()));
-        return Math.round(p[0].height() * 100f / (p[0].height() + p[1].height()));
+        SplitGeometry geometry = splitGeometry();
+        return geometry == null ? -1 : geometry.percent();
     }
 
-    /** Ayraci hedef orana surukler (API 24+ dispatchGesture, yansima ile) */
-    private boolean dragRatio(int target) {
-        // her surukleme (duzeltmeler dahil) bir islemdir: bitene kadar ayracin ara konumu "elle ayar" sayilmasin
+    /** Acceptance is not completion: only the callback may start bounds verification. */
+    private boolean dragRatio(int target, SplitGeometry geometry, GestureResultCallback callback) {
         ratioOpAt = SystemClock.uptimeMillis();
         lastDragAt = ratioOpAt;
-        // surukleme surerken yer degistirme / ikili acma yapilmasin (ust uste binen islemler sistemi kilitleyebiliyor)
         busyUntil = Math.max(busyUntil, SystemClock.elapsedRealtime() + 4500);
         seenRatio = -1;
-        android.graphics.Point s = screen();
-        Rect d = dividerWindow();
-        int sx, sy, ex, ey;
-        if (d != null) {
-            sx = d.centerX(); sy = d.centerY();
-            if (d.height() >= d.width()) { ex = Math.round(s.x * target / 100f); ey = sy; }
-            else { ey = Math.round(s.y * target / 100f); ex = sx; }
-        } else {
-            Rect[] p = pairRects();
-            if (p == null) return false;
-            if (sideBySide(p)) {
-                sx = (p[0].right + p[1].left) / 2; sy = (p[0].top + p[0].bottom) / 2;
-                ex = Math.round(s.x * target / 100f); ey = sy;
-            } else {
-                sy = (p[0].bottom + p[1].top) / 2; sx = (p[0].left + p[0].right) / 2;
-                ey = Math.round(s.y * target / 100f); ex = sx;
-            }
-        }
+        int sx = geometry.startX(), sy = geometry.startY();
+        int ex = geometry.targetX(target), ey = geometry.targetY(target);
         try {
             // sure yol uzunluguna gore dagitilir: baslangicta 2 px'lik git-gel ile ~0.3 sn "basili tut"
             android.graphics.Path path = new android.graphics.Path();
             path.moveTo(sx, sy);
             float dist = (float) Math.hypot(ex - sx, ey - sy);
+            int travel = Math.max(ViewConfiguration.get(this).getScaledTouchSlop() * 2,
+                    Math.round(16 * getResources().getDisplayMetrics().density));
+            boolean nudge = dist < travel;
+            if (nudge) dist += travel * 2;
             int wiggles = Math.max(10, Math.round(dist * 0.3f / 2f));   // ~%23 sure = ~0.3 sn bekleme
             // baslangicta uzun basili tutma, Tbox'ta pencereyi tutup yuzen pencereye cevirebiliyor: kisa tut
             int startHold = 3;
-            boolean horiz = Math.abs(ex - sx) >= Math.abs(ey - sy);
+            boolean horiz = geometry.horizontal;
             for (int i = 0; i < startHold; i++) {
                 float o = (i % 2 == 0) ? 2f : 0f;
                 if (horiz) path.lineTo(sx, sy + o); else path.lineTo(sx + o, sy);
+            }
+            // Even at the requested percentage, cross touch slop to trigger Android's real resize,
+            // then return to the requested position instead of permanently changing the ratio.
+            if (nudge) {
+                if (horiz) path.lineTo(sx + (sx <= geometry.frame.centerX() ? travel : -travel), sy);
+                else path.lineTo(sx, sy + (sy <= geometry.frame.centerY() ? travel : -travel));
             }
             path.lineTo(ex, ey);
             // hedefte de ~0.3 sn bekle: birakma hizi sifira yakin olsun, ayrac firlatma sanmasin
@@ -973,17 +1078,11 @@ public class SplitService extends AccessibilityService {
                 if (horiz) path.lineTo(ex, ey + o); else path.lineTo(ex + o, ey);
             }
             long dur = 1100L + Math.round(dist * 1.6f);   // ~450 px icin ~1.8 sn (yavas cihazda firlatma sanilmasin)
-            Class<?> sd = Class.forName("android.accessibilityservice.GestureDescription$StrokeDescription");
-            Class<?> gb = Class.forName("android.accessibilityservice.GestureDescription$Builder");
-            Object b = gb.newInstance();
-            Object st = sd.getConstructor(android.graphics.Path.class, long.class, long.class).newInstance(path, 0L, dur);
-            gb.getMethod("addStroke", sd).invoke(b, st);
-            Object g = gb.getMethod("build").invoke(b);
-            Class<?> gd = Class.forName("android.accessibilityservice.GestureDescription");
-            Class<?> cb = Class.forName("android.accessibilityservice.AccessibilityService$GestureResultCallback");
-            Object r = AccessibilityService.class.getMethod("dispatchGesture", gd, cb, Handler.class).invoke(this, g, null, null);
-            SplitLog.add("ratio drag " + sx + "," + sy + " -> " + ex + "," + ey + ": " + r);
-            return Boolean.TRUE.equals(r);
+            GestureDescription gesture = new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0L, dur)).build();
+            boolean accepted = dispatchGesture(gesture, callback, h);
+            SplitLog.add("ratio drag " + sx + "," + sy + " -> " + ex + "," + ey + ": " + accepted);
+            return accepted;
         } catch (Throwable e) { SplitLog.add("ratio drag failed: " + e); return false; }
     }
 
@@ -1268,6 +1367,8 @@ public class SplitService extends AccessibilityService {
                         dumpWindows();
                         updateActive();
                         busyUntil = 0;
+                        if (SplitController.isActive())
+                            scheduleRatio(Prefs.side(SplitService.this, Prefs.LEFT), right, 1500);
                     }
                 }, 1500);
             }
