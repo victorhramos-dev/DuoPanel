@@ -167,6 +167,8 @@ public class InfoStripTest {
     }
 
     @Test public void settingsChoicePersistsRefreshesImmediatelyAndRebindsOnResume() {
+        // This test exercises strip settings, not the network-backed update check.
+        Prefs.sp(service).edit().putLong("update.lastCheck", System.currentTimeMillis()).commit();
         org.robolectric.android.controller.ActivityController<MainActivity> activityController =
                 Robolectric.buildActivity(MainActivity.class).create(new Bundle()).start().resume();
         MainActivity activity = activityController.get();

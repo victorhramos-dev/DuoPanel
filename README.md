@@ -1,4 +1,4 @@
-# DuoPanel Streambox Fix — 1.0.4-streambox
+# DuoPanel Streambox Fix — 1.0.5-streambox
 
 Fork não oficial do [DuoPanel original](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-), baseado no commit `1b8b897e9114046d5ea19f5ead4f47d02693ced3`, para o Faaftech Streambox Pro conectado à multimídia do Omoda 5 HEV 2026.
 
@@ -28,6 +28,16 @@ Os pontos de encaixe e os tamanhos mínimos continuam sendo controlados pelo And
 
 A assinatura pertence ao fork, não ao autor original. A mesma chave é preservada para permitir atualizações das compilações anteriores do Streambox Fix.
 
+## Atualizações pelo aplicativo
+
+- Na tela principal visível, o app consulta as releases estáveis de [`victorhramos-dev/DuoPanel`](https://github.com/victorhramos-dev/DuoPanel/releases/latest) de forma assíncrona, no máximo uma vez a cada 24 horas. **Verificar atualizações**, perto do log, ignora esse intervalo. Boot e abertura automática do par não fazem a consulta.
+- O download só começa ao tocar em **Baixar**; é possível adiar ou cancelar. Sair da tela cancela a operação. Falhas permitem nova tentativa manual.
+- O APK fica no cache privado. Tamanho, SHA-256 (digest da release ou `SHA256SUMS`), pacote, versionCode superior e a mesma assinatura instalada são obrigatórios. Rotação de chave não é aceita automaticamente.
+- A instalação é sempre confirmada no instalador Android. No Android 8+, pode ser necessário permitir instalar apps desconhecidos para o DuoPanel; ao retornar, confirme **Instalar** novamente. Negar ou voltar não reabre configurações automaticamente.
+- Não há serviço periódico, atualização silenciosa ou token GitHub. GitHub recebe as consultas e downloads; indisponibilidade ou limite da API impedem a atualização sem afetar o par.
+- Quem está na versão 1.0.4 precisa instalar a 1.0.5 manualmente para receber este recurso; as próximas versões poderão ser verificadas pelo aplicativo.
+- A implementação passou pela validação automatizada anterior descrita abaixo, mas ainda não foi validada em dispositivo físico ou no veículo. A CI da tag `v1.0.5-streambox` ainda está pendente.
+
 ## Compilação e release no GitHub
 
 - `android-ci.yml` executa os testes debug/release em pushes na `main` e pull requests, sem precisar de segredos. Publica os relatórios de teste e lint como artefatos.
@@ -49,6 +59,13 @@ Configure estes **GitHub Actions secrets** no repositório; nunca adicione a cha
 O workflow restaura a chave apenas no diretório temporário do runner e a remove ao terminar. As credenciais são fornecidas ao Gradle por variáveis de ambiente, não por arquivos versionados. O job de compilação tem somente leitura do repositório; somente o job de publicação recebe permissão para criar a release, sem acesso ao material de assinatura do outro runner.
 
 Para desenvolvimento, `keystore.properties` local continua suportado conforme `keystore.properties.example`; `ANDROID_KEYSTORE_PATH` e as variáveis de assinatura acima têm precedência. Os testes podem ser executados com `./gradlew test`, sem chave de release.
+
+## Verificação da versão 1.0.5
+
+- O run anterior `github-update-validation/orun-12-888ae610` passou com **162 testes debug e 162 testes release**, além da geração dos APKs, antes deste bump de versão e do ajuste da fixture de igualdade.
+- A cobertura automatizada do auto update inclui APIs 24, 26 e 33: consulta com a tela visível, botão manual, cancelamento, integridade, compatibilidade e instalação pelo Android.
+- A validação local após estas edições passou com **162 testes debug e 162 testes release**, sem falhas, erros ou skips; `assembleDebug` e `assembleRelease` concluíram. O APK release confirmou versão `1.0.5-streambox`/versionCode `6` e assinatura v2 com o certificado preservado. A CI da tag `v1.0.5-streambox` ainda está pendente. Somente o APK construído, assinado e verificado no GitHub Actions será publicado; nenhum APK local será enviado.
+- O pacote `com.abdullaherturk.duopanel.streamboxfix` e a configuração de assinatura foram preservados. Não houve teste físico no Streambox/Omoda ou no veículo.
 
 ## Verificação da versão 1.0.4
 
@@ -88,7 +105,7 @@ Para desenvolvimento, `keystore.properties` local continua suportado conforme `k
   <img alt="Android" src="https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Split screen" src="https://img.shields.io/badge/Split%20screen-Android%2012L%2B-1f6f8b">
   <img alt="Languages" src="https://img.shields.io/badge/Dil%20%2F%20Language-TR%20%7C%20EN-blue">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.4--streambox-informational">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.5--streambox-informational">
 </p>
 
 ---
@@ -206,7 +223,7 @@ Uygulama cihazın sistem diline göre otomatik olarak Türkçe ya da İngilizce 
 ### Gizlilik
 
 - Hesap, reklam ya da analiz yoktur.
-- İnternet yalnızca hava durumu için kullanılır: [Open-Meteo](https://open-meteo.com/) ve konum kapalıyken yaklaşık konum için [ipapi.co](https://ipapi.co/).
+- İnternet hava durumu için ([Open-Meteo](https://open-meteo.com/) ve konum kapalıyken yaklaşık konum için [ipapi.co](https://ipapi.co/)) ve GitHub sürüm denetimleri ile onaylanan APK indirmeleri için kullanılır.
 - Konum cihazdan dışarı gönderilmez, yalnızca hava durumu sorgusunda koordinat olarak kullanılır.
 - Erişilebilirlik hizmeti yalnızca pencere konumlarını ve bölünmüş ekran kontrollerini okur. Yazdıklarınızı kaydetmez.
 
@@ -333,7 +350,7 @@ The app follows the device language and opens in Turkish or English. Any other l
 ### Privacy
 
 - No account, no ads, no analytics.
-- Internet is used only for the weather: [Open-Meteo](https://open-meteo.com/), plus [ipapi.co](https://ipapi.co/) for a rough location when location is off.
+- Internet is used for weather ([Open-Meteo](https://open-meteo.com/), plus [ipapi.co](https://ipapi.co/) for a rough location when location is off), GitHub release checks and consented APK downloads.
 - Your location never leaves the device except as coordinates in the weather request.
 - The accessibility service only reads window positions and split-screen controls. It does not record what you type.
 

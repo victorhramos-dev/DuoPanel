@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="update_check">Güncellemeleri denetle</string>
+    <string name="update_checking">Güncelleme denetleniyor…</string>
+    <string name="update_current">En son kararlı sürümü kullanıyorsunuz.</string>
+    <string name="update_error">Güncelleme başarısız: ağ/istek sınırı, eksik sürüm/APK veya bütünlük/uyumluluk kontrolü. Daha sonra tekrar deneyin.</string>
+    <string name="update_available">DuoPanel güncellemesi</string>
+    <string name="update_offer">GitHub üzerinde %1$s sürümü var. Şimdi indirilsin mi? Android kurulum için onay isteyecek.</string>
+    <string name="update_download">İndir</string>
+    <string name="update_later">Daha sonra</string>
+    <string name="update_downloading">APK indiriliyor ve doğrulanıyor…</string>
+    <string name="update_progress">APK indiriliyor: %1$d%%</string>
+    <string name="update_ready">APK doğrulandı. Android ile kurulsun mu? İstenirse bu uygulamaya bilinmeyen uygulamaları yükleme izni verin, ardından geri dönüp tekrar onaylayın.</string>
+    <string name="update_install">Kur</string>
+    <string name="update_permission_denied">Kurulum izni verilmedi. Tekrar denemek için güncellemeleri denetleyin.</string>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="update_check">Verificar atualizações</string>
+    <string name="update_checking">Verificando atualização…</string>
+    <string name="update_current">Você já tem a versão estável mais recente.</string>
+    <string name="update_error">Falha na atualização: rede/limite de requisições, release/APK ausente ou integridade/compatibilidade inválida. Tente novamente depois.</string>
+    <string name="update_available">Atualização do DuoPanel</string>
+    <string name="update_offer">Versão %1$s disponível no GitHub. Baixar agora? O Android solicitará confirmação da instalação.</string>
+    <string name="update_download">Baixar</string>
+    <string name="update_later">Adiar</string>
+    <string name="update_downloading">Baixando e verificando APK…</string>
+    <string name="update_progress">Baixando APK: %1$d%%</string>
+    <string name="update_ready">APK verificado. Instalar pelo Android? Se solicitado, permita instalar apps desconhecidos para este app, depois retorne e confirme novamente.</string>
+    <string name="update_install">Instalar</string>
+    <string name="update_permission_denied">Permissão de instalação não concedida. Verifique atualizações para tentar novamente.</string>
+</resources>

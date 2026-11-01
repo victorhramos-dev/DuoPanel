@@ -23,6 +23,7 @@ import java.util.List;
 
 public class MainActivity extends Activity {
     private final boolean[] del = new boolean[2];
+    private UpdateController updates;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -37,6 +38,8 @@ public class MainActivity extends Activity {
             return;
         }
         setContentView(R.layout.activity_main);
+        updates = new UpdateController(this, b);
+        findViewById(R.id.btn_update).setOnClickListener(v -> updates.check(true));
         findViewById(R.id.btn_setup).setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { startActivity(new Intent(MainActivity.this, SetupActivity.class)); }
         });
@@ -87,6 +90,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        if (updates != null) updates.pause();
         getSharedPreferences("duo", 4).unregisterOnSharedPreferenceChangeListener(prefListener);
         super.onPause();
     }
@@ -97,6 +101,13 @@ public class MainActivity extends Activity {
         getSharedPreferences("duo", 4).registerOnSharedPreferenceChangeListener(prefListener);
         refresh();
         OverlayService.start(this);
+        if (updates != null && !isFinishing()) updates.resume();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle state) {
+        if (updates != null) updates.save(state);
+        super.onSaveInstanceState(state);
     }
 
     private void bindSwitch(int id, final String key, boolean def, final boolean overlayRefresh) {

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking update…</string>
+    <string name="update_current">You have the latest stable version.</string>
+    <string name="update_error">Update failed: network/rate limit, missing release/APK, or integrity/compatibility check. Try again later.</string>
+    <string name="update_available">DuoPanel update</string>
+    <string name="update_offer">Version %1$s is available from GitHub. Download now? Android will ask you to confirm installation.</string>
+    <string name="update_download">Download</string>
+    <string name="update_later">Later</string>
+    <string name="update_downloading">Downloading and verifying APK…</string>
+    <string name="update_progress">Downloading APK: %1$d%%</string>
+    <string name="update_ready">APK verified. Install with Android? If requested, allow this app to install unknown apps, then return and confirm again.</string>
+    <string name="update_install">Install</string>
+    <string name="update_permission_denied">Installation permission not granted. Check for updates to try again.</string>
+</resources>
