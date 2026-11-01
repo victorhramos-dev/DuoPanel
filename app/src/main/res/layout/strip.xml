@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
+<view xmlns:android="http://schemas.android.com/apk/res/android"
+    class="com.abdullaherturk.duopanel.OverlayService$StripLayout"
+    android:layout_width="match_parent"
     android:layout_height="56dp"
     android:background="@drawable/bg_strip"
     android:gravity="center_vertical"
@@ -10,19 +11,41 @@
 
     <FrameLayout
         android:id="@+id/btn_left"
-        android:layout_width="44dp"
+        android:layout_width="72dp"
         android:layout_height="44dp"
         android:background="@drawable/bg_glass_r14"
         android:clickable="true"
-        android:contentDescription="@string/popup_left"
+        android:contentDescription="@string/all_apps_left"
         android:focusable="true">
 
         <ImageView
             android:id="@+id/iv_left"
             android:layout_width="30dp"
             android:layout_height="30dp"
-            android:layout_gravity="center" />
+            android:layout_marginStart="4dp"
+            android:layout_gravity="start|center_vertical" />
+        <TextView
+            android:layout_width="34dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end|center_vertical"
+            android:gravity="center"
+            android:drawableTop="@drawable/ic_apps"
+            android:text="@string/slot_left"
+            android:textSize="10sp"
+            android:textColor="?attr/dpAccent" />
     </FrameLayout>
+
+    <HorizontalScrollView
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="horizontal">
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
     <View
         android:layout_width="16dp"
@@ -152,18 +175,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/btn_apps"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginStart="14dp"
-        android:background="@drawable/bg_pill_glass"
-        android:clickable="true"
-        android:contentDescription="@string/all_apps"
-        android:focusable="true"
-        android:padding="9dp"
-        android:src="@drawable/ic_apps"
-        android:tint="?attr/dpAccent" />
+
 
     <TextView
         android:id="@+id/btn_ratio"
@@ -190,7 +202,7 @@
         android:layout_marginStart="8dp"
         android:background="@drawable/bg_pill_glass"
         android:clickable="true"
-        android:contentDescription="@string/swap_desc"
+        android:contentDescription="@string/strip_swap_desc"
         android:focusable="true"
         android:padding="9dp"
         android:src="@drawable/ic_swap"
@@ -200,19 +212,32 @@
         android:layout_width="16dp"
         android:layout_height="1dp" />
 
+    </LinearLayout>
+    </HorizontalScrollView>
+
     <FrameLayout
         android:id="@+id/btn_right"
-        android:layout_width="44dp"
+        android:layout_width="72dp"
         android:layout_height="44dp"
         android:background="@drawable/bg_glass_r14"
         android:clickable="true"
-        android:contentDescription="@string/popup_right"
+        android:contentDescription="@string/all_apps_right"
         android:focusable="true">
 
         <ImageView
             android:id="@+id/iv_right"
             android:layout_width="30dp"
             android:layout_height="30dp"
-            android:layout_gravity="center" />
+            android:layout_marginStart="4dp"
+            android:layout_gravity="start|center_vertical" />
+        <TextView
+            android:layout_width="34dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end|center_vertical"
+            android:gravity="center"
+            android:drawableTop="@drawable/ic_apps"
+            android:text="@string/slot_right"
+            android:textSize="10sp"
+            android:textColor="?attr/dpAccent" />
     </FrameLayout>
-</LinearLayout>
+</view>

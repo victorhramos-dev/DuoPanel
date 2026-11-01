@@ -28,7 +28,7 @@ public class SplitService extends AccessibilityService {
             "(split|bölünmüş|bolunmus|böl|yan yana|multi.?window|çoklu pencere|ekranı böl)", Pattern.CASE_INSENSITIVE);
 
     private static SplitService inst;
-    private static boolean autoDone;
+    private BootStartup bootStartup;
 
     private Handler h;
     private String fg;
@@ -40,42 +40,30 @@ public class SplitService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         inst = this;
-        h = new Handler(getMainLooper());
+        if (bootStartup != null) bootStartup.close();
+        if (h == null) h = new Handler(getMainLooper());
         SplitLog.install(this);
         SplitLog.add("accessibility connected");
-        OverlayService.start(this);
-        // acilista son kullanilan ikili: her acilista en fazla bir kez (kalici kayit), sistem yerlesince
-        long bootId = (System.currentTimeMillis() - SystemClock.elapsedRealtime()) / 60000L;
-        if (Prefs.autoLaunch(this) && Prefs.hasPair(this) && !autoDone
-                && SystemClock.elapsedRealtime() < 5 * 60 * 1000L
-                && Math.abs(Prefs.getLong(this, "autoBoot") - bootId) > 1) {
-            autoDone = true;
-            Prefs.setLong(this, "autoBoot", bootId);
-            final String al = Prefs.side(this, Prefs.LEFT), ar = Prefs.side(this, Prefs.RIGHT);
-            SplitLog.add("auto launch scheduled: " + al + " + " + ar);
-            h.postDelayed(new Runnable() {
-                public void run() {
-                    String[] lr = currentPair();
-                    if (lr != null && ((lr[0].equals(al) && lr[1].equals(ar)) || (lr[0].equals(ar) && lr[1].equals(al)))) {
-                        SplitLog.add("auto launch: pair already on screen");
-                        updateActive();
-                        return;
+        if (Prefs.autostart(this)) OverlayService.start(this);
+        bootStartup = new BootStartup(this, h, new BootStartup.Host() {
+            @Override public boolean ready() {
+                if (inst != SplitService.this || SystemClock.elapsedRealtime() < busyUntil) return false;
+                try {
+                    List<AccessibilityWindowInfo> windows = getWindows();
+                    if (windows != null) for (AccessibilityWindowInfo window : windows) {
+                        if (window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                        AccessibilityNodeInfo root = window.getRoot();
+                        if (root != null && root.getPackageName() != null
+                                && !"com.android.systemui".contentEquals(root.getPackageName())) return true;
                     }
-                    SplitController.launchPair(SplitService.this);
-                }
-            }, 15000);
-        }
-        // hizmeti DuoPanel kendisi yeniden actiysa bekleyen ikiliyi ac
-        long pend = Prefs.getLong(this, "pendingLaunch");
-        if (pend > 0) {
-            Prefs.setLong(this, "pendingLaunch", 0);
-            if (SystemClock.elapsedRealtime() - pend < 20000 && SystemClock.elapsedRealtime() > pend) {
-                SplitLog.add("launching pair after re-enable");
-                h.postDelayed(new Runnable() {
-                    public void run() { SplitController.launchPair(SplitService.this); }
-                }, 1500);
+                } catch (Exception e) { SplitLog.add("startup windows unavailable: " + e); }
+                return false;
             }
-        }
+            @Override public boolean visible() { return currentPair() != null; }
+            @Override public void recognized() { updateActive(); }
+            @Override public void dispatch(String left, String right) { runPair(left, right); }
+        });
+        bootStartup.start();
         updateActive();
         if (SplitController.isActive()) {
             // surec yeniden baslatildiysa ikili zaten ekranda: once kayitli orani uygula (ayracin o anki yeri kaydedilmesin)
@@ -88,6 +76,7 @@ public class SplitService extends AccessibilityService {
     @Override
     public void onAccessibilityEvent(AccessibilityEvent e) {
         if (e == null) return;
+        if (bootStartup != null) bootStartup.wake();
         if (e.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             CharSequence p = e.getPackageName();
             CharSequence cls = e.getClassName();
@@ -107,6 +96,7 @@ public class SplitService extends AccessibilityService {
 
     @Override
     public boolean onUnbind(Intent i) {
+        if (bootStartup != null) { bootStartup.close(); bootStartup = null; }
         ratioToken++;
         ratioArmed = false;
         blockedAt = -1;

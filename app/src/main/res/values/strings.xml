@@ -10,6 +10,7 @@
     <string name="popup_left">Left app</string>
     <string name="popup_right">Right app</string>
     <string name="bubble_desc">Reopen the two apps</string>
+    <string name="strip_swap_desc">Tap to swap apps. Hold for 3 seconds to invert only the split ratio. Accessibility: long-click to invert the ratio.</string>
     <string name="popup_no_history">No history yet</string>
     <string name="all_apps">All apps</string>
     <string name="change">Change</string>
@@ -113,4 +114,9 @@
     <string name="music_unpin_yes">Remove</string>
     <string name="music_settings">DuoPanel Streambox Fix settings</string>
     <string name="strip_settings">Settings</string>
+    <string name="all_apps_left">All apps — replace left</string>
+    <string name="all_apps_right">All apps — replace right</string>
+    <string name="strip_position">Info strip position</string>
+    <string name="strip_edge">EDGE — fixed at the top edge</string>
+    <string name="strip_floating">FLOATING — draggable, remembers position</string>
 </resources>

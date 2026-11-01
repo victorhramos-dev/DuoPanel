@@ -50,7 +50,8 @@ public class OverlayService extends Service implements SplitController.Listener 
     private Handler h;
     private View strip, bubble, popup;
     private int popupSide = -1;
-    private static final int APPS = 2;
+    private StripSwapTouch stripSwapTouch;
+
     private boolean popupDel;
     private WindowManager.LayoutParams stripLp;
     private View divBtn;
@@ -198,6 +199,7 @@ public class OverlayService extends Service implements SplitController.Listener 
 
     @Override
     public void onSplitChanged(boolean active) {
+        if (!active && stripSwapTouch != null) stripSwapTouch.cancel();
         if (bubble != null) bubble.setVisibility(active ? View.GONE : View.VISIBLE);
         if (strip != null) strip.setVisibility(active ? View.VISIBLE : View.GONE);
         if (active && strip != null) startSensors(); else stopSensors();
@@ -207,6 +209,10 @@ public class OverlayService extends Service implements SplitController.Listener 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     private void removeAll() {
+        if (stripSwapTouch != null) {
+            stripSwapTouch.dispose();
+            stripSwapTouch = null;
+        }
         dismissPopup();
         if (strip != null) { try { wm.removeView(strip); } catch (Exception e) { } strip = null; }
         stripLp = null;
@@ -243,6 +249,47 @@ public class OverlayService extends Service implements SplitController.Listener 
         h.post(tick);
     }
 
+    /** Observe the unsplit stream before ViewGroup routes each finger to a different child. */
+    public static class StripLayout extends android.widget.LinearLayout {
+        private StripSwapTouch swapTouch;
+        private boolean swapGesture, canceledSwapGesture;
+
+        public StripLayout(Context context, android.util.AttributeSet attrs) {
+            super(context, attrs);
+        }
+
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                swapGesture = false;
+                canceledSwapGesture = false;
+            }
+            if (canceledSwapGesture) return true;
+            boolean multiple = event.getPointerCount() > 1
+                    || action == MotionEvent.ACTION_POINTER_DOWN
+                    || action == MotionEvent.ACTION_POINTER_UP;
+            if (swapTouch != null && (multiple || action == MotionEvent.ACTION_CANCEL)) {
+                swapTouch.cancel();
+                if (swapGesture && multiple) {
+                    // Cancel every existing child target before splitting can give a sibling
+                    // a new DOWN/UP (and accidentally cycle the ratio after canceling SWAP).
+                    canceledSwapGesture = true;
+                    MotionEvent cancel = MotionEvent.obtain(event);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    try { super.dispatchTouchEvent(cancel); }
+                    finally { cancel.recycle(); }
+                    return true;
+                }
+            }
+            // Unrelated gestures retain normal sibling, scrolling and dragging behavior.
+            boolean handled = super.dispatchTouchEvent(event);
+            if (action == MotionEvent.ACTION_DOWN) {
+                swapGesture = swapTouch != null && swapTouch.pending;
+            }
+            return handled;
+        }
+    }
+
     // ---------- serit ----------
     private void addStrip() {
         strip = LayoutInflater.from(tc).inflate(R.layout.strip, null);
@@ -274,11 +321,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         strip.findViewById(R.id.btn_right).setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { togglePopup(Prefs.RIGHT); }
         });
-        strip.findViewById(R.id.btn_left).setVisibility(View.GONE);
-        strip.findViewById(R.id.btn_right).setVisibility(View.GONE);
-        strip.findViewById(R.id.btn_apps).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { togglePopup(APPS); }
-        });
+
         final TextView ratioBtn = (TextView) strip.findViewById(R.id.btn_ratio);
         updateRatioLabel(ratioBtn);
         ratioBtn.setOnClickListener(new View.OnClickListener() {
@@ -291,22 +334,31 @@ public class OverlayService extends Service implements SplitController.Listener 
                 if (ss != null) ss.applyRatioDebounced(l, r);
             }
         });
-        strip.findViewById(R.id.btn_swap).setVisibility(Prefs.dividerSwap(this) ? View.VISIBLE : View.GONE);
-        strip.findViewById(R.id.btn_swap).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { dismissPopup(); SplitController.swapSides(OverlayService.this); }
+        final View swapBtn = strip.findViewById(R.id.btn_swap);
+        swapBtn.setVisibility(Prefs.dividerSwap(this) ? View.VISIBLE : View.GONE);
+        swapBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (stripSwapTouch == null || !stripSwapTouch.available(v)) return;
+                dismissPopup();
+                SplitController.swapSides(OverlayService.this);
+            }
         });
+        stripSwapTouch = new StripSwapTouch(swapBtn);
+        ((StripLayout) strip).swapTouch = stripSwapTouch;
+        swapBtn.setOnTouchListener(stripSwapTouch);
+        swapBtn.setOnLongClickListener(stripSwapTouch);
         final DisplayMetrics dm = getResources().getDisplayMetrics();
-        strip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                View.MeasureSpec.makeMeasureSpec(dp(56), View.MeasureSpec.EXACTLY));
-        final int sw = strip.getMeasuredWidth();
+        final boolean edge = Prefs.stripEdge(this);
+        strip.setBackgroundResource(edge ? R.drawable.bg_strip_edge : R.drawable.bg_strip);
+        final int sw = Math.min(dm.widthPixels - dp(12), dp(1000));
         final WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT, dp(56), TYPE_OVERLAY,
+                edge ? WindowManager.LayoutParams.MATCH_PARENT : sw, dp(56), TYPE_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
         int sx = Prefs.stripX(this), sy = Prefs.stripY(this);
-        lp.x = sx >= 0 ? Math.min(sx, Math.max(0, dm.widthPixels - sw)) : Math.max(0, (dm.widthPixels - sw) / 2);
-        lp.y = sy >= 0 ? Math.min(sy, Math.max(0, dm.heightPixels - dp(56))) : dp(6);
+        lp.x = edge ? 0 : sx >= 0 ? Math.min(sx, Math.max(0, dm.widthPixels - sw)) : Math.max(0, (dm.widthPixels - sw) / 2);
+        lp.y = edge ? 0 : sy >= 0 ? Math.min(sy, Math.max(0, dm.heightPixels - dp(56))) : dp(6);
         stripLp = lp;
         // seridi surukle; yerinde 0.8 sn basili tutunca ortala
         strip.setOnTouchListener(new View.OnTouchListener() {
@@ -317,28 +369,136 @@ public class OverlayService extends Service implements SplitController.Listener 
                         dx = e.getRawX(); dy = e.getRawY(); ox = lp.x; oy = lp.y; moved = false; down = e.getEventTime();
                         return true;
                     case MotionEvent.ACTION_MOVE:
+                        if (edge) return true;
                         float mx = e.getRawX() - dx, my = e.getRawY() - dy;
                         if (!moved && (Math.abs(mx) > dp(8) || Math.abs(my) > dp(8))) { moved = true; dismissPopup(); }
                         if (moved) {
-                            lp.x = Math.max(0, Math.min(dm.widthPixels - strip.getWidth(), ox + Math.round(mx)));
-                            lp.y = Math.max(0, Math.min(dm.heightPixels - strip.getHeight(), oy + Math.round(my)));
+                            // Use the window dimensions even before the first layout pass, so
+                            // saved coordinates obey the same bounds as restoration.
+                            lp.x = Math.max(0, Math.min(dm.widthPixels - lp.width, ox + Math.round(mx)));
+                            lp.y = Math.max(0, Math.min(dm.heightPixels - lp.height, oy + Math.round(my)));
                             try { wm.updateViewLayout(strip, lp); } catch (Exception ex) { }
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
-                        if (moved) Prefs.setStrip(OverlayService.this, lp.x, lp.y);
+                        if (moved && !edge) Prefs.setStrip(OverlayService.this, lp.x, lp.y);
                         else if (e.getEventTime() - down > 700) showStripMenu();   // basili tut: Ortala / Gizle
                         return true;
                 }
                 return false;
             }
         });
-        try { wm.addView(strip, lp); } catch (Exception e) { SplitLog.add("strip add failed: " + e); strip = null; return; }
+        try { wm.addView(strip, lp); } catch (Exception e) {
+            SplitLog.add("strip add failed: " + e);
+            stripSwapTouch.dispose();
+            stripSwapTouch = null;
+            strip = null;
+            return;
+        }
         updateIcons();
         lastClockMinute = Long.MIN_VALUE;
         tickOnce();
         if (hasWx) showWeather(wxTemp, wxCode, wxDay);
         strip.setVisibility(SplitController.isActive() ? View.VISIBLE : View.GONE);
+    }
+
+    /** Physical holds use our own deadline, not Android's default long-click timeout. */
+    private class StripSwapTouch implements View.OnTouchListener, View.OnLongClickListener,
+            View.OnAttachStateChangeListener {
+        private final View button;
+        private final int slop = android.view.ViewConfiguration.get(OverlayService.this).getScaledTouchSlop();
+        private float downX, downY;
+        private boolean pending, disposed;
+        private final Runnable hold = new Runnable() {
+            public void run() {
+                if (!pending) return;
+                cancel(); // Consume this press even when the pair/service is unavailable.
+                invert();
+            }
+        };
+
+        StripSwapTouch(View button) {
+            this.button = button;
+            button.addOnAttachStateChangeListener(this);
+        }
+
+        boolean available(View v) {
+            return !disposed && v == button && strip != null
+                    && strip.findViewById(R.id.btn_swap) == button && button.isShown();
+        }
+
+        void cancel() {
+            pending = false;
+            h.removeCallbacks(hold);
+            button.setPressed(false);
+        }
+
+        void dispose() {
+            cancel();
+            if (strip instanceof StripLayout && ((StripLayout) strip).swapTouch == this) {
+                ((StripLayout) strip).swapTouch = null;
+            }
+            disposed = true;
+            button.removeOnAttachStateChangeListener(this);
+        }
+
+        private void invert() {
+            if (!available(button)) return;
+            dismissPopup();
+            String l = Prefs.side(OverlayService.this, Prefs.LEFT);
+            String r = Prefs.side(OverlayService.this, Prefs.RIGHT);
+            if (l == null || r == null) return;
+            Prefs.setRatio(OverlayService.this, l, r, 100 - Prefs.ratio(OverlayService.this, l, r));
+            updateRatioLabel((TextView) strip.findViewById(R.id.btn_ratio));
+            SplitService ss = SplitService.get();
+            if (ss != null) ss.applyRatioDebounced(l, r);
+            button.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+        }
+
+        public boolean onLongClick(View v) {
+            cancel();
+            invert();
+            return true;
+        }
+
+        private boolean movedOutside(MotionEvent e) {
+            return Math.abs(e.getX() - downX) > slop || Math.abs(e.getY() - downY) > slop
+                    || e.getX() < 0 || e.getY() < 0
+                    || e.getX() >= button.getWidth() || e.getY() >= button.getHeight();
+        }
+
+        public boolean onTouch(View v, MotionEvent e) {
+            if (e.getPointerCount() != 1) { cancel(); return true; }
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    cancel();
+                    if (!available(v)) return true;
+                    downX = e.getX(); downY = e.getY();
+                    if (movedOutside(e)) return true;
+                    pending = true;
+                    button.setPressed(true);
+                    h.postDelayed(hold, 3000);
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (movedOutside(e)) cancel();
+                    break;
+                case MotionEvent.ACTION_UP:
+                    boolean click = pending && available(v) && !movedOutside(e);
+                    cancel();
+                    if (click) v.performClick();
+                    break;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                case MotionEvent.ACTION_POINTER_UP:
+                case MotionEvent.ACTION_OUTSIDE:
+                case MotionEvent.ACTION_CANCEL:
+                    cancel();
+                    break;
+            }
+            return true;
+        }
+
+        public void onViewAttachedToWindow(View v) { }
+        public void onViewDetachedFromWindow(View v) { cancel(); }
     }
 
     /** Ayrac elle cekildiginde serideki oran yazisini gunceller */
@@ -717,6 +877,7 @@ public class OverlayService extends Service implements SplitController.Listener 
         center.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 removeStripMenu();
+                if (Prefs.stripEdge(OverlayService.this)) return;
                 Prefs.setStrip(OverlayService.this, -1, -1);
                 DisplayMetrics dm = getResources().getDisplayMetrics();
                 stripLp.x = Math.max(0, (dm.widthPixels - strip.getWidth()) / 2);
@@ -743,7 +904,7 @@ public class OverlayService extends Service implements SplitController.Listener 
                 catch (Exception ex) { SplitLog.add("settings open failed: " + ex); }
             }
         });
-        box.addView(center);
+        if (!Prefs.stripEdge(this)) box.addView(center);
         android.widget.LinearLayout.LayoutParams sp = new android.widget.LinearLayout.LayoutParams(-2, -2);
         sp.leftMargin = dp(8);
         box.addView(settings, sp);
@@ -845,52 +1006,24 @@ public class OverlayService extends Service implements SplitController.Listener 
         SplitController.launchPair(this);
     }
 
-    private void openApp(String pkg) {
-        dismissPopup();
-        SplitService ss = SplitService.get();
-        if (ss != null) { ss.openFullscreen(pkg); return; }
-        try {
-            Intent i = AppList.launchIntent(this, pkg);
-            if (i == null) return;
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-            SplitLog.add("open app " + pkg);
-        } catch (Exception e) { SplitLog.add("open app failed " + pkg + ": " + e); }
-    }
+    // Both strip grids always replace one side through pick(), never open fullscreen.
 
     private void showPopup(final int side) {
         popupSide = side;
         popup = LayoutInflater.from(tc).inflate(R.layout.popup_side, null);
         ((TextView) popup.findViewById(R.id.tv_popup_title)).setText(
-                side == Prefs.LEFT ? R.string.popup_left : side == Prefs.RIGHT ? R.string.popup_right : R.string.all_apps);
+                side == Prefs.LEFT ? R.string.all_apps_left : R.string.all_apps_right);
         popupDel = false;
         final GridView gv = (GridView) popup.findViewById(R.id.gv_all);
         final List<AppList.App> apps = new ArrayList<AppList.App>();
-        if (side == APPS) {
-            // tum uygulamalar: secilen uygulama normal sekilde acilir
-            popup.findViewById(R.id.hs_history).setVisibility(View.GONE);
-            popup.findViewById(R.id.tv_no_history).setVisibility(View.GONE);
-            popup.findViewById(R.id.btn_all_apps).setVisibility(View.GONE);
-            apps.addAll(AppList.list(this));
-            gv.setAdapter(new AppAdapter(apps));
-            gv.setVisibility(View.VISIBLE);
-        } else {
-            renderPopupHistory(side);
-        }
-        popup.findViewById(R.id.btn_all_apps).setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                if (gv.getVisibility() == View.VISIBLE) { gv.setVisibility(View.GONE); return; }
-                if (apps.isEmpty()) {
-                    apps.addAll(AppList.list(OverlayService.this));
-                    gv.setAdapter(new AppAdapter(apps));
-                }
-                gv.setVisibility(View.VISIBLE);
-            }
-        });
+        renderPopupHistory(side);
+        popup.findViewById(R.id.btn_all_apps).setVisibility(View.GONE);
+        apps.addAll(AppList.list(this));
+        gv.setAdapter(new AppAdapter(apps));
+        gv.setVisibility(View.VISIBLE);
         gv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             public void onItemClick(AdapterView<?> a, View v, int pos, long id) {
-                if (side == APPS) openApp(apps.get(pos).pkg);
-                else pick(side, apps.get(pos).pkg);
+                pick(side, apps.get(pos).pkg);
             }
         });
         popup.setOnTouchListener(new View.OnTouchListener() {
@@ -905,7 +1038,9 @@ public class OverlayService extends Service implements SplitController.Listener 
             }
         });
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int w = Math.min(dp(560), Math.round(dm.widthPixels * 0.48f));
+        int w = Math.min(dp(560), dm.widthPixels - dp(16));
+        // Bound the scrolling grid on short landscape screens; history remains available above it.
+        gv.getLayoutParams().height = Math.max(dp(48), Math.min(dp(300), dm.heightPixels - dp(240)));
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 w, WindowManager.LayoutParams.WRAP_CONTENT, TYPE_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL

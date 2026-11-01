@@ -42,8 +42,8 @@ android {
         applicationId 'com.abdullaherturk.duopanel.streamboxfix'
         minSdk 24
         targetSdk 33
-        versionCode 4
-        versionName '1.0.3-streambox'
+        versionCode 5
+        versionName '1.0.4-streambox'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
 }

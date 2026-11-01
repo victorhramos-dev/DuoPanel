@@ -73,11 +73,12 @@ public class MainActivity extends Activity {
     private final android.content.SharedPreferences.OnSharedPreferenceChangeListener prefListener =
             new android.content.SharedPreferences.OnSharedPreferenceChangeListener() {
                 public void onSharedPreferenceChanged(android.content.SharedPreferences sp, String key) {
-                    if ("bubble".equals(key) || "strip".equals(key)) {
+                    if ("bubble".equals(key) || "strip".equals(key) || "stripEdge".equals(key)) {
                         runOnUiThread(new Runnable() {
                             public void run() {
                                 bindSwitch(R.id.sw_bubble, "bubble", true, true);
                                 bindSwitch(R.id.sw_strip, "strip", true, true);
+                                bindStripPosition();
                             }
                         });
                     }
@@ -110,6 +111,18 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void bindStripPosition() {
+        final android.widget.RadioGroup group = (android.widget.RadioGroup) findViewById(R.id.strip_position);
+        group.setOnCheckedChangeListener(null);
+        group.check(Prefs.stripEdge(this) ? R.id.strip_edge : R.id.strip_floating);
+        group.setOnCheckedChangeListener(new android.widget.RadioGroup.OnCheckedChangeListener() {
+            public void onCheckedChanged(android.widget.RadioGroup g, int id) {
+                Prefs.setStripEdge(MainActivity.this, id == R.id.strip_edge);
+                OverlayService.refresh(MainActivity.this);
+            }
+        });
+    }
+
     private void refresh() {
         boolean ok = PermissionHelper.allCore(this);
         findViewById(R.id.dot_status).setBackgroundResource(ok ? R.drawable.bg_dot_ok : R.drawable.bg_dot_warn);
@@ -119,6 +132,7 @@ public class MainActivity extends Activity {
         bindSwitch(R.id.sw_autostart, "autostart", true, true);
         bindSwitch(R.id.sw_autolaunch, "autolaunch", false, false);
         bindSwitch(R.id.sw_strip, "strip", true, true);
+        bindStripPosition();
         bindMapsSwitches();
         renderRatio();
         bindSwitch(R.id.sw_divider, "dividerSwap", true, true);

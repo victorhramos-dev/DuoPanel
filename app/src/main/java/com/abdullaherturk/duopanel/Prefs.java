@@ -166,6 +166,9 @@ public class Prefs {
     public static void clearWxLocation(Context c) { sp(c).edit().remove("wxName").remove("wxLat").remove("wxLon").apply(); }
 
     /** -1 = ortala */
+    /** Edge is the default, including upgrades with saved floating coordinates. */
+    public static boolean stripEdge(Context c) { return get(c, "stripEdge", true); }
+    public static void setStripEdge(Context c, boolean edge) { set(c, "stripEdge", edge); }
     public static int stripX(Context c) { return sp(c).getInt("sx", -1); }
     public static int stripY(Context c) { return sp(c).getInt("sy", -1); }
     public static void setStrip(Context c, int x, int y) { sp(c).edit().putInt("sx", x).putInt("sy", y).apply(); }

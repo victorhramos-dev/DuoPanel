@@ -548,6 +548,27 @@
                 android:text="@string/set_strip"
                 android:textColor="?attr/dpText"
                 android:textSize="15sp" />
+            <RadioGroup
+                android:id="@+id/strip_position"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/strip_position"
+                android:orientation="vertical">
+                <RadioButton
+                    android:id="@+id/strip_edge"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/strip_edge"
+                    android:textColor="?attr/dpText" />
+                <RadioButton
+                    android:id="@+id/strip_floating"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/strip_floating"
+                    android:textColor="?attr/dpText" />
+            </RadioGroup>
             <Switch
                 android:id="@+id/sw_maps_drive"
                 android:layout_width="match_parent"

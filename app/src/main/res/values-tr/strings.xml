@@ -10,6 +10,7 @@
     <string name="popup_left">Sol uygulama</string>
     <string name="popup_right">Sağ uygulama</string>
     <string name="bubble_desc">İki uygulamayı tekrar aç</string>
+    <string name="strip_swap_desc">Uygulamaları değiştirmek için dokunun. Yalnızca bölünme oranını tersine çevirmek için 3 saniye basılı tutun. Erişilebilirlik: oranı tersine çevirmek için uzun tıklayın.</string>
     <string name="popup_no_history">Henüz geçmiş yok</string>
     <string name="all_apps">Tüm uygulamalar</string>
     <string name="change">Değiştir</string>
@@ -113,4 +114,9 @@
     <string name="music_unpin_yes">Kaldır</string>
     <string name="music_settings">DuoPanel Streambox Fix ayarları</string>
     <string name="strip_settings">Ayarlar</string>
+    <string name="all_apps_left">Tüm uygulamalar — solu değiştir</string>
+    <string name="all_apps_right">Tüm uygulamalar — sağı değiştir</string>
+    <string name="strip_position">Bilgi şeridi konumu</string>
+    <string name="strip_edge">EDGE — üst kenara sabit</string>
+    <string name="strip_floating">FLOATING — sürüklenebilir, konumu hatırlar</string>
 </resources>

@@ -1,10 +1,15 @@
-# DuoPanel Streambox Fix — 1.0.3-streambox
+# DuoPanel Streambox Fix — 1.0.4-streambox
 
 Fork não oficial do [DuoPanel original](https://github.com/abdullah-erturk/DuoPanel-for-Android-Head-Unity-), baseado no commit `1b8b897e9114046d5ea19f5ead4f47d02693ced3`, para o Faaftech Streambox Pro conectado à multimídia do Omoda 5 HEV 2026.
 
 [Baixar a última versão](https://github.com/victorhramos-dev/DuoPanel/releases/latest) · [GitHub Actions](https://github.com/victorhramos-dev/DuoPanel/actions)
 
 ## Melhorias
+
+- Duas grades completas de aplicativos, abertas imediatamente e dedicadas aos lados esquerdo e direito.
+- Barra de informações no topo em toda a largura por padrão (EDGE), com escolha EDGE/FLOATING no painel e preservação das coordenadas flutuantes.
+- Inicialização orientada à prontidão, sem espera incondicional de 15 segundos; respeita as preferências automáticas, o bloqueio do dispositivo e evita execuções duplicadas.
+- SWAP: toque curto troca os aplicativos; pressão contínua de 3 segundos inverte somente a proporção (30↔70; 50 permanece), sem trocar aplicativos ou históricos, com cancelamento e suporte de acessibilidade.
 
 - Exige cobertura completa da área útil e estabilidade das janelas, incluindo barras do sistema, atividades embutidas e fragmentos de uma mesma aplicação.
 - Restaura diretamente a proporção salva, sem parada forçada em 50/50. A espera fixa foi removida quando não há reenvio do Maps em modo direção.
@@ -45,7 +50,14 @@ O workflow restaura a chave apenas no diretório temporário do runner e a remov
 
 Para desenvolvimento, `keystore.properties` local continua suportado conforme `keystore.properties.example`; `ANDROID_KEYSTORE_PATH` e as variáveis de assinatura acima têm precedência. Os testes podem ser executados com `./gradlew test`, sem chave de release.
 
-## Verificação da versão 1.0.3
+## Verificação da versão 1.0.4
+
+- 126 testes debug e `assembleDebug` passaram na validação anterior à preparação dos metadados desta versão.
+- A cobertura automatizada inclui inicialização, barra de informações e gestos SWAP: prontidão, preferências, bloqueio, idempotência, modos de apresentação, cancelamento e acessibilidade.
+- A CI exige testes debug/release e compilação antes da publicação. A nova execução de release ainda precisa ser confirmada; a validação anterior não comprova seu resultado.
+- Não houve validação física destas alterações no Streambox/Omoda nem medição de desempenho físico. As verificações de emulador abaixo pertencem somente à versão 1.0.3.
+
+## Verificação histórica da versão 1.0.3
 
 - 78 casos em debug e 78 em release, incluindo cobertura de APIs 28, 30 e 33: geometria, abertura do par, callbacks antigos, decodificação, cancelamento, reciclagem de linhas e ciclo de vida.
 - No emulador Android 13/API 33, um PNG 8192×512 limitado ao maior eixo de 512 pixels passou de 16 MiB para 64 KiB de bitmap decodificado. Isso não é uma medição da RAM total do aplicativo no Streambox.
@@ -76,7 +88,7 @@ Para desenvolvimento, `keystore.properties` local continua suportado conforme `k
   <img alt="Android" src="https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Split screen" src="https://img.shields.io/badge/Split%20screen-Android%2012L%2B-1f6f8b">
   <img alt="Languages" src="https://img.shields.io/badge/Dil%20%2F%20Language-TR%20%7C%20EN-blue">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.3--streambox-informational">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.4--streambox-informational">
 </p>
 
 ---
@@ -144,7 +156,7 @@ Araç ekranlarında iki uygulamayı yan yana açmak normalde birkaç adım süre
 |---|---|
 | Android sürümü | En az Android 7.0. Tek dokunuşla bölünmüş ekran için **Android 12L (API 32) ve üzeri** önerilir. |
 | Ekran | Bölünmüş ekranı destekleyen geniş ekranlı cihazlar (araç kutusu, multimedya ekranı, tablet) |
-| Test edilen cihazlar | Orijinal sürüm: Carlinkit Tbox Ambient, Samsung Galaxy Tab S8 Ultra. Bu yerel sürüm: Android 13 emülatörü, 1920×720; fiziksel araç cihazında doğrulanmadı. |
+| Test edilen cihazlar | Orijinal sürüm: Carlinkit Tbox Ambient, Samsung Galaxy Tab S8 Ultra. Fork'un geçmiş doğrulaması (1.0.3): Android 13 emülatörü, 1920×720. 1.0.4 değişiklikleri yalnızca otomatik testlerle doğrulandı; fiziksel araç cihazında doğrulanmadı. |
 
 ### Kurulum
 
@@ -271,7 +283,7 @@ On a car screen, opening two apps side by side normally takes several steps: Rec
 |---|---|
 | Android version | Android 7.0 or later. **Android 12L (API 32) or later** is recommended for one-tap split screen. |
 | Screen | Wide-screen devices with split-screen support (car box, head unit, tablet) |
-| Tested on | Original upstream: Carlinkit Tbox Ambient and Samsung Galaxy Tab S8 Ultra. This local build: Android 13 emulator, 1920×720; not verified on physical automotive hardware. |
+| Tested on | Original upstream: Carlinkit Tbox Ambient and Samsung Galaxy Tab S8 Ultra. Historical fork validation (1.0.3): Android 13 emulator, 1920×720. The 1.0.4 changes have automated coverage only; not verified on physical automotive hardware. |
 
 ### Installation
 
